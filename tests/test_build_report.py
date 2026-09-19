@@ -149,3 +149,38 @@ def test_tokens_expose_the_resolution_bound():
     t = br.tokens(RESULTS)
     assert "ci_halfwidth_pp" in t
     assert float(t["ci_halfwidth_pp"]) > 0
+
+
+# --- unmeasured arms -------------------------------------------------------
+
+UNMEASURED = {
+    **RESULTS,
+    "arms": RESULTS["arms"] + [
+        {"arm": "scout", "model": "m/scout", "kind": "chat", "reasoning": None,
+         "attempted": 100, "scored": 0, "correct": 0, "accuracy": None, "measured": False,
+         "accuracy_ci95": [0.0, 0.04], "failures": {"http_error": 100},
+         "input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0,
+         "computed_cost_micro": 0, "reported_cost_micro": 0, "cost_reconciled": True,
+         "cost_per_1000_micro": 0, "price_in_micro_per_mtok": 1, "price_out_micro_per_mtok": 1,
+         "p50_latency_ms": None, "p95_latency_ms": None, "latency_samples": 0},
+    ],
+}
+
+
+def test_an_unmeasured_arm_is_kept_out_of_the_matrix():
+    """0 of 100 is resolvable against everything; leaving it in invents findings."""
+    out = br.distinguishability_html(UNMEASURED)
+    assert "Excluded as unmeasured" in out
+    rows = out.count("<tr>")
+    assert rows == 1 + len(RESULTS["arms"])  # header plus the measured arms only
+
+
+def test_an_unmeasured_arm_is_kept_out_of_the_break_even_baseline():
+    """Its zero cost would otherwise become the baseline every arm is priced against."""
+    out = br.break_even_table_html(UNMEASURED)
+    assert "Excluded as unmeasured" in out
+    assert "scout</code></td>" not in out
+
+
+def test_an_unmeasured_arm_cannot_be_the_best_arm():
+    assert br.tokens(UNMEASURED)["best_arm"] == "dear"

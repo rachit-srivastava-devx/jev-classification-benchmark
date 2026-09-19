@@ -27,6 +27,7 @@ def rows(results: dict[str, ArmMetrics]) -> list[dict]:
             "scored": m.scored,
             "correct": m.correct,
             "accuracy": m.accuracy,
+            "measured": m.measured,
             "failures": m.failures,
             "input_tokens": m.input_tokens,
             "output_tokens": m.output_tokens,

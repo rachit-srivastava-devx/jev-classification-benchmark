@@ -57,9 +57,25 @@ class ArmMetrics:
         return self.scored + sum(self.failures.values())
 
     @property
+    def measured(self) -> bool:
+        """Whether this arm produced any usable answer at all.
+
+        An arm that returned HTTP 404 on every call was not measured. Reporting
+        it as 0% accuracy would be a claim about the model rather than about the
+        run, so `accuracy` is None here and the tables print a dash.
+        """
+        return self.scored > 0
+
+    @property
     def accuracy(self) -> float | None:
-        """Accuracy over every attempt, so a failure is never free. None on an empty set."""
-        return None if self.attempted == 0 else self.correct / self.attempted
+        """Accuracy over every attempt, so a partial failure is never free.
+
+        None when nothing parsed: accuracy over zero usable observations is
+        undefined, not zero.
+        """
+        if not self.measured:
+            return None
+        return self.correct / self.attempted
 
     @property
     def cost_per_1000_micro(self) -> int | None:

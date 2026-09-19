@@ -93,3 +93,57 @@ def test_a_400_naming_reasoning_is_classified_so_the_runner_can_renegotiate():
 def test_an_unrelated_400_is_not_a_reasoning_rejection():
     r = chat_arm.parse(b'{"error": {"message": "context length exceeded"}}', status=400)
     assert r.reasoning_rejected is False
+
+
+# --- markdown fences -------------------------------------------------------
+#
+# Found in the field, not imagined: claude-sonnet-5 wrapped its JSON in a
+# ```json fence on 29 of 100 calls in the first full run, and the parser scored
+# every one of them as malformed. That is a 27-point error in the arm's reported
+# accuracy caused entirely by our own reader. A fence is presentation, not
+# content, so it is stripped before parsing rather than counted as a failure.
+
+
+def _ok(content: str):
+    body = json.dumps({
+        "choices": [{"message": {"content": content}}],
+        "usage": {"prompt_tokens": 70, "completion_tokens": 11, "cost": 0.000252},
+    }).encode()
+    return chat_arm.parse(body, 200)
+
+
+def test_a_json_fence_is_stripped_not_counted_as_malformed():
+    p = _ok('```json\n{"label": "billing"}\n```')
+    assert p.failure is None
+    assert p.label == "billing"
+
+
+def test_a_bare_fence_without_a_language_tag_is_stripped():
+    p = _ok('```\n{"label": "technical"}\n```')
+    assert p.failure is None
+    assert p.label == "technical"
+
+
+def test_unfenced_content_is_unaffected():
+    p = _ok('{"label": "account"}')
+    assert p.failure is None
+    assert p.label == "account"
+
+
+def test_a_fence_around_prose_is_still_malformed():
+    """Stripping the fence must not turn unparseable content into a silent pass."""
+    p = _ok("```json\nI think this is a billing issue.\n```")
+    assert p.failure == "malformed_output"
+
+
+def test_backticks_inside_the_json_are_not_treated_as_a_fence():
+    p = _ok('{"label": "other", "note": "```"}')
+    assert p.failure is None
+    assert p.label == "other"
+
+
+def test_an_unterminated_fence_is_still_stripped():
+    """Truncation at max_tokens can drop the closing fence; the label is still there."""
+    p = _ok('```json\n{"label": "sales"}')
+    assert p.failure is None
+    assert p.label == "sales"

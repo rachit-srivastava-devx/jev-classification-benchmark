@@ -42,6 +42,30 @@ def _rejects_reasoning(raw: bytes) -> bool:
     return b"reasoning" in raw.lower()
 
 
+def strip_fence(content: str) -> str:
+    """Remove a surrounding markdown code fence, if one is there.
+
+    claude-sonnet-5 wrapped its JSON in a ```json fence on 29 of 100 calls in the
+    first full run of this benchmark, and the parser counted every one as a
+    malformed output — a 27-point error in that arm's accuracy, caused by our
+    reader and not by the model. A fence is presentation; the content inside it
+    is the answer.
+
+    Only a fence that *opens the content* is stripped, so backticks appearing
+    inside a JSON string are untouched. The closing fence is optional because
+    truncation at max_tokens drops it while leaving a complete object behind.
+    """
+    text = content.strip()
+    if not text.startswith("```"):
+        return content
+    # Drop the opening fence and its optional language tag, which runs to the newline.
+    newline = text.find("\n")
+    text = "" if newline == -1 else text[newline + 1:]
+    if text.rstrip().endswith("```"):
+        text = text.rstrip()[:-3]
+    return text
+
+
 def parse(raw: bytes, status: int) -> Prediction:
     if status != 200:
         return failed(
@@ -64,7 +88,7 @@ def parse(raw: bytes, status: int) -> Prediction:
         return failed(MALFORMED, "empty message content")
 
     try:
-        payload = json.loads(content)
+        payload = json.loads(strip_fence(content))
     except ValueError as exc:
         return failed(MALFORMED, f"content is not JSON: {exc}")
     if not isinstance(payload, dict) or "label" not in payload:

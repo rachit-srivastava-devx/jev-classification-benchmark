@@ -34,7 +34,8 @@ def tokens(results: dict, judge: dict | None = None) -> dict[str, str]:
     jev = by["jev"]
     chat = sorted((a for a in arms if a["kind"] == "chat"), key=lambda a: a["cost_per_1000_micro"])
     median = chat[len(chat) // 2]
-    best = max(arms, key=lambda a: (a["accuracy"] or 0))
+    measured = _measured(results)
+    best = max(measured, key=lambda a: (a["accuracy"] or 0))
     out = {
         "arm_count": str(len(arms)),
         "record_count": f"{results['totals']['records']:,}",
@@ -98,7 +99,7 @@ def _resolution_pp(results: dict) -> float:
 
 
 def _stat_tokens(results: dict) -> dict[str, str]:
-    arms = results["arms"]
+    arms = _measured(results)
     n = _dataset_n(results)
     reconciled = sum(1 for a in arms if a.get("cost_reconciled"))
     jev = next(a for a in arms if a["arm"] == "jev")
@@ -241,6 +242,27 @@ def results_table(results: dict) -> str:
     return f"<table class='results'><thead>{head}</thead><tbody>{''.join(body)}</tbody></table>"
 
 
+def _measured(results: dict) -> list[dict]:
+    """Arms this run actually observed.
+
+    An arm that produced no usable answer contributes nothing to an accuracy
+    comparison and would corrupt one: 0 correct out of 100 attempts is
+    resolvable against everything, so leaving it in would manufacture twenty
+    significant differences out of a routing failure.
+    """
+    return [a for a in results["arms"] if a.get("measured", a["accuracy"] is not None)]
+
+
+def _unmeasured_note(results: dict) -> str:
+    missing = [a for a in results["arms"]
+               if not a.get("measured", a["accuracy"] is not None)]
+    if not missing:
+        return ""
+    names = ", ".join(f"<code>{html.escape(a['arm'])}</code>" for a in missing)
+    return (f"<p class='sub'>Excluded as unmeasured: {names}. These arms returned no "
+            f"usable answer on any call; see the failure table for why.</p>")
+
+
 def break_even_table_html(results: dict) -> str:
     """What one misroute must be worth before each arm's price is rational.
 
@@ -248,10 +270,10 @@ def break_even_table_html(results: dict) -> str:
     more than the figure in this row, this arm is worth its price. If less, it is
     not. The benchmark cannot supply that figure; only the business can.
     """
-    rows = break_even_table(results["arms"])
+    rows = break_even_table(_measured(results))
     head = ("<tr><th>Arm</th><th class='n'>Cost / 1k</th><th class='n'>Accuracy</th>"
             "<th class='n'>Break-even cost of one misroute</th><th>Reading</th></tr>")
-    by = {a["arm"]: a for a in results["arms"]}
+    by = {a["arm"]: a for a in _measured(results)}
     body = []
     for r in rows:
         a = by[r["arm"]]
@@ -271,7 +293,7 @@ def break_even_table_html(results: dict) -> str:
             f"<td><span class='sub'>{html.escape(note)}</span></td></tr>"
         )
     return (f"<table class='results breakeven'><thead>{head}</thead>"
-            f"<tbody>{''.join(body)}</tbody></table>")
+            f"<tbody>{''.join(body)}</tbody></table>{_unmeasured_note(results)}")
 
 
 #: A tie is a statement about the sample, not about the models. The glyphs are
@@ -281,9 +303,9 @@ VERDICT_GLYPH = {"better": "+", "worse": "\u2212", "tie": "=", "self": "\u00b7"}
 
 def distinguishability_html(results: dict) -> str:
     """Every ordered pair of arms, and whether this run can tell them apart."""
-    arms = sorted(results["arms"], key=lambda a: -(a["accuracy"] or 0))
+    arms = sorted(_measured(results), key=lambda a: -(a["accuracy"] or 0))
     names = [a["arm"] for a in arms]
-    matrix = distinguishability_matrix(results["arms"])
+    matrix = distinguishability_matrix(_measured(results))
     # Columns are numbered, not named. Twenty arm names across the head is ~880px of
     # table in a 810px column, and a matrix that scrolls sideways is a matrix nobody
     # reads. The row label carries the name and the index ties the two together.
@@ -309,7 +331,8 @@ def distinguishability_html(results: dict) -> str:
               "&#183; = this run cannot tell them apart. Hover any cell for the 95% interval "
               "on the difference (Newcombe method 10).</p>")
     return (f"<table class='results matrix'><thead>{head}</thead>"
-            f"<tbody>{''.join(body)}</tbody></table>{legend}")
+            f"<tbody>{''.join(body)}</tbody></table>{legend}"
+            f"{_unmeasured_note(results)}")
 
 
 def failures_html(results: dict) -> str:

@@ -86,3 +86,34 @@ def test_arms_are_kept_apart():
     out = aggregate([rec(arm="jev"), rec(arm="opus-5")], ARM_MAP)
     assert sorted(out) == ["jev", "opus-5"]
     assert out["jev"].kind == "jev"
+
+
+# --- an arm that never answered -------------------------------------------
+#
+# llama-4-scout returned HTTP 404 "No endpoints found" on all 100 calls of the
+# first full run. Dividing 0 correct by 100 attempts yields 0.0, and a table
+# printing "0%" makes a claim about the model that this run did not measure.
+# Accuracy over zero usable observations is undefined, not zero.
+
+
+def _arm_metrics_with(scored: int, correct: int, http_errors: int):
+    from jevdemo.metrics import ArmMetrics
+    m = ArmMetrics(spec=by_name("sonnet-5"))
+    m.scored, m.correct = scored, correct
+    if http_errors:
+        m.failures["http_error"] = http_errors
+    return m
+
+
+def test_an_arm_that_never_answered_has_no_accuracy():
+    m = _arm_metrics_with(scored=0, correct=0, http_errors=100)
+    assert m.measured is False
+    assert m.accuracy is None
+
+
+def test_failures_still_count_against_an_arm_that_did_answer():
+    """A partial failure is not free — it stays in the denominator."""
+    m = _arm_metrics_with(scored=83, correct=73, http_errors=17)
+    assert m.measured is True
+    assert m.attempted == 100
+    assert m.accuracy == 0.73

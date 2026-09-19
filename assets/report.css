@@ -142,3 +142,10 @@ table.matrix td.v-tie    { color: var(--muted-2); }
 table.matrix td.v-self   { color: var(--rule); }
 
 table.judge td:nth-child(3) { font-weight: 500; }
+table.matrix th.rot { font-size: 10px; letter-spacing: 0; padding-right: 4px; }
+table.matrix .idx {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--muted-2);
+  margin-right: 4px;
+}

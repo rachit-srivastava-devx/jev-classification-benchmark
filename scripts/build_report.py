@@ -284,8 +284,12 @@ def distinguishability_html(results: dict) -> str:
     arms = sorted(results["arms"], key=lambda a: -(a["accuracy"] or 0))
     names = [a["arm"] for a in arms]
     matrix = distinguishability_matrix(results["arms"])
+    # Columns are numbered, not named. Twenty arm names across the head is ~880px of
+    # table in a 810px column, and a matrix that scrolls sideways is a matrix nobody
+    # reads. The row label carries the name and the index ties the two together.
+    index = {n: i + 1 for i, n in enumerate(names)}
     head = "<tr><th>Row beats column?</th>" + "".join(
-        f"<th class='n rot'>{html.escape(n)}</th>" for n in names) + "</tr>"
+        f"<th class='n rot' title='{html.escape(n)}'>{index[n]}</th>" for n in names) + "</tr>"
     body = []
     for a in arms:
         cells = []
@@ -297,8 +301,11 @@ def distinguishability_html(results: dict) -> str:
                 f"<td class='n v-{cell['verdict']}' title='{html.escape(title)}'>"
                 f"{VERDICT_GLYPH[cell['verdict']]}</td>"
             )
-        body.append(f"<tr><td><code>{html.escape(a['arm'])}</code></td>{''.join(cells)}</tr>")
-    legend = ("<p class='sub'>+ row is measurably better &#183; \u2212 row is measurably worse "
+        body.append(
+            f"<tr><td><span class='idx'>{index[a['arm']]}</span> "
+            f"<code>{html.escape(a['arm'])}</code></td>{''.join(cells)}</tr>")
+    legend = ("<p class='sub'>Columns are numbered in the same order as the rows &#183; "
+              "+ row is measurably better &#183; \u2212 row is measurably worse "
               "&#183; = this run cannot tell them apart. Hover any cell for the 95% interval "
               "on the difference (Newcombe method 10).</p>")
     return (f"<table class='results matrix'><thead>{head}</thead>"

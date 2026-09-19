@@ -3,7 +3,7 @@
 ## Bottom line
 
 Every arm is a row in one registry and two pure functions: build a request, parse a response.
-Neither function touches the network, which is what lets all 16 arms be tested against
+Neither function touches the network, which is what lets all 20 arms be tested against
 captured fixtures with no key and no spend.
 
 ## The registry — `jevdemo/arms.py`

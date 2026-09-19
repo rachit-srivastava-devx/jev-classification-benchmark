@@ -24,7 +24,7 @@ same five keys and the same definition strings. Fails: module does not exist.
 *Done:* the grep test passes and nothing else in `jevdemo/` imports `urllib`. ~30 min.
 
 **A3 · Arm registry** — `jevdemo/arms.py`
-*Red:* `test_arms.py` asserts all 16 arms resolve against a captured `models.json`, and that
+*Red:* `test_arms.py` asserts all 20 arms resolve against a captured `models.json`, and that
 prices are `int` micro-dollars.
 *Green:* the frozen `Arm` dataclass and 16 rows from spec 03.
 *Done:* a deliberately corrupted model id makes the test fail. ~30 min.
@@ -44,7 +44,7 @@ discrepancy is reported, not swallowed.
 Captures one real body per arm plus a `models.json` snapshot, writes them to
 `tests/fixtures/`, and regenerates the tables in `PROBE-RESULTS.md`. Everything downstream
 tests against these. *Do this first in Phase B — it de-risks B2 and B3 entirely.*
-*Done:* 16 fixture files exist and each is listed in `PROBE-RESULTS.md`. ~40 min, ~$0.01.
+*Done:* 20 fixture files exist and each is listed in `PROBE-RESULTS.md`. ~40 min, ~$0.01.
 
 **B2 · Jev arm** — `jevdemo/jev_arm.py`
 *Red:* `test_jev_arm.py` runs the ten parser cases from spec 06 against the captured P1 body
@@ -102,11 +102,11 @@ source file, and that the JSON round-trips to identical metrics.
 **D2 · Live smoke** — `pytest -m live`
 One call per arm, 16 calls, ~$0.005. Catches a retired model or a changed envelope before the
 paid run.
-*Done:* 16/16 arms return a parseable answer. ~15 min.
+*Done:* 16/20 arms return a parseable answer. ~15 min.
 
 **D3 · The run**
 `python3 -m jevdemo.run`. Two passes, ~20 min, ~$0.45.
-*Done:* `results.json` holds 1,920 records, every arm reconciles within 2 micro-dollars, and
+*Done:* `results.json` holds 2,400 records, every arm reconciles within 2 micro-dollars, and
 any arm that did not is named. ~25 min including watching it.
 
 **D4 · HTML report** — `report.html`

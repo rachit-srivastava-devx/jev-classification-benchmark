@@ -84,7 +84,7 @@ The 400 reads: `Reasoning is mandatory for this endpoint and cannot be disabled.
 
 ## P4 · Model roster is real
 
-All 16 arms resolved against `GET /api/v1/models` on 2026-09-20; every chat model reports
+All 20 arms resolved against `GET /api/v1/models` on 2026-09-20; every chat model reports
 `response_format` and `structured_outputs` in `supported_parameters`. `meta-llama/llama-4-scout`
 is the only one without `reasoning`, which is why it has a single arm.
 

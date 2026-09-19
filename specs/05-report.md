@@ -9,7 +9,7 @@ built to the DevX doctrine for everyone else.
 ## 1 · stdout
 
 ```
-jev-demo · 100 tickets · 16 arms · 2026-09-20T14:02:11Z · $0.4412 spent
+jev-demo · 100 tickets · 20 arms · 2026-09-20T14:02:11Z · $0.4412 spent
 
 arm                        acc      bnd   P50      in   out  rsn   $/1k    fail
 jev                      92.0%    76.0%  0.31s    395     0    0  0.0166      0
@@ -41,7 +41,7 @@ sorting by cost puts that on the diagonal.
                   "latency_ms": 312.4, "pass_name": "bulk", "error": null}]}
 ```
 
-All 1,920 prediction records are written, failures included. The **disagreement set** — the
+All 2,400 prediction records are written, failures included. The **disagreement set** — the
 tickets where arms split — is the most valuable thing in the file and the reason per-ticket
 records are kept rather than only aggregates.
 

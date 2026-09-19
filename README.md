@@ -1,6 +1,6 @@
 # jev-demo — what does a cheap classification actually cost?
 
-A 16-arm benchmark on one narrow task: routing a support ticket to a department. Same 100
+A 20-arm benchmark on one narrow task: routing a support ticket to a department. Same 100
 tickets, same 5 labels, one API key. **Jev 1.13** — TypeSafe's typed-decision model — against
 15 chat-model configurations, measured on latency, tokens, cost, and the number that decides
 it, accuracy.
@@ -29,7 +29,7 @@ All verified live on 2026-09-20 against the key in `.env`. Full bodies in
 
 | File | What it settles |
 |---|---|
-| [specs/00-overview.md](specs/00-overview.md) | The task, the 16 arms, hypotheses recorded before the run, scope |
+| [specs/00-overview.md](specs/00-overview.md) | The task, the 20 arms, hypotheses recorded before the run, scope |
 | [specs/01-architecture.md](specs/01-architecture.md) | 9 modules, the transport seam, integer money, two-pass runner |
 | [specs/02-dataset.md](specs/02-dataset.md) | 100 tickets, 25 boundary cases, the validation gate |
 | [specs/03-arms.md](specs/03-arms.md) | Arm registry, both wire protocols, the 4-way failure taxonomy |
@@ -42,7 +42,7 @@ All verified live on 2026-09-20 against the key in `.env`. Full bodies in
 ## Cost and runtime of a full run
 
 About **$0.46** and **20 minutes**: a strictly sequential latency pass over 20 tickets, then
-an 8-wide bulk pass over all 100, across 16 arms — 1,920 calls. Derived from the measured
+an 8-wide bulk pass over all 100, across 20 arms — 2,400 calls. Derived from the measured
 per-call costs in PROBE-RESULTS, not estimated.
 
 ## Explicitly out of scope

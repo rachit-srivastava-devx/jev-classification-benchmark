@@ -6,7 +6,7 @@ Jev costs roughly **$0.000017 per classification** and returns a typed label tha
 malformed. The chat models tested cost between $0.00004 and $0.00063 for the same answer, and
 one of them — `gemini-3.8-flash` — spends **13× its own minimum** on reasoning tokens for a
 question it answers correctly without them (spec PROBE-RESULTS, P3). This benchmark turns
-those single-call observations into 16 arms × 100 tickets of measured evidence, and reports
+those single-call observations into 20 arms × 100 tickets of measured evidence, and reports
 the one number that decides whether cheap matters: accuracy.
 
 ## The task
@@ -20,7 +20,7 @@ decision model should beat a chat model, and therefore the fairest place to test
 
 ## The arms
 
-16 arms, one provider (OpenRouter), one API key, one run. Models reasoning-capable on this
+20 arms, one provider (OpenRouter), one API key, one run. Models reasoning-capable on this
 endpoint get two arms — default and lowest-reasoning — because the gap between them is a
 configuration choice teams make without seeing its cost.
 
@@ -33,11 +33,17 @@ configuration choice teams make without seeing its cost.
 | 6–7 | `gemini-3.8-flash{,-low}` | `google/gemini-3.8-flash` | default / minimal |
 | 8–9 | `glm-5.3-flash{,-low}` | `z-ai/glm-5.3-flash` | default / low |
 | 10–11 | `qwen3.8-flash{,-low}` | `qwen/qwen3.8-flash` | default / low |
-| 12 | `deepseek-v4.1-flash-low` | `deepseek/deepseek-v4.1-flash` | low |
-| 13 | `kimi-k3-low` | `moonshotai/kimi-k3` | low |
-| 14 | `grok-4.6-low` | `x-ai/grok-4.6` | low |
-| 15 | `mistral-small-low` | `mistralai/mistral-small-2603` | low |
-| 16 | `llama-4-scout` | `meta-llama/llama-4-scout` | not supported |
+| 12–13 | `deepseek-v4.1-flash{,-low}` | `deepseek/deepseek-v4.1-flash` | default / low |
+| 14–15 | `kimi-k3{,-low}` | `moonshotai/kimi-k3` | default / low |
+| 16–17 | `grok-4.6{,-low}` | `x-ai/grok-4.6` | default / low |
+| 18–19 | `mistral-small{,-low}` | `mistralai/mistral-small-2603` | default / low |
+| 20 | `llama-4-scout` | `meta-llama/llama-4-scout` | not supported |
+
+**Correction, recorded in the open.** This table said 16 arms when it was first written, with
+deepseek, kimi, grok and mistral appearing as `-low` only. That was wrong: a `-low` arm with
+no default twin measures nothing, because there is nothing to subtract it from. The four
+missing default arms were added during implementation, taking the roster to 20 and the run to
+2,400 calls.
 
 Roster verified against `GET /api/v1/models`, 2026-09-20 (spec PROBE-RESULTS, P4). The arm
 table lives in `jevdemo/arms.py` and is the only place a model id appears.
@@ -58,7 +64,7 @@ only confirms is not being run honestly.
 
 ## Scope
 
-**In:** 100 hand-labelled tickets · 16 arms · a two-pass runner (clean latency, then bulk
+**In:** 100 hand-labelled tickets · 20 arms · a two-pass runner (clean latency, then bulk
 accuracy) · offline-testable parsers · a stdout table, a results JSON, and one HTML report
 built to the DevX doctrine.
 

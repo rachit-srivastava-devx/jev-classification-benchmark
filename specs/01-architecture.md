@@ -16,7 +16,7 @@ jev-demo/
 ├── scripts/probe.py       # live probe; rewrites fixtures
 ├── jevdemo/
 │   ├── labels.py          # 5 labels + definitions — SINGLE SOURCE
-│   ├── arms.py            # the 16-arm registry — SINGLE SOURCE of model ids
+│   ├── arms.py            # the 20-arm registry — SINGLE SOURCE of model ids
 │   ├── transport.py       # the ONLY network code. Injected as a callable.
 │   ├── jev_arm.py         # build request / parse response for the decisions endpoint
 │   ├── chat_arm.py        # build request / parse response for chat completions

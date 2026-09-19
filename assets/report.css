@@ -1,0 +1,122 @@
+/* Document surface (internal report): doctrine tokens applied, chrome stripped.
+   Max width 960px because this document carries tables. Spacing scale only. */
+
+* { box-sizing: border-box; }
+
+body { margin: 0; padding: 48px 24px 96px; }
+
+main { max-width: 960px; margin: 0 auto; }
+
+h1 {
+  font-family: var(--f-display);
+  font-weight: 500;
+  font-size: 48px;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  margin: 8px 0 24px;
+}
+
+h2 {
+  font-family: var(--f-display);
+  font-weight: 500;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+  margin: 64px 0 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--ink);
+}
+
+h3 {
+  font-family: var(--f-display);
+  font-weight: 500;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  margin: 32px 0 8px;
+}
+
+.accent-rule {
+  border-top: 2px solid var(--accent);
+  width: 72px;
+  margin: 12px 0 24px;
+}
+
+p, li {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 76ch;
+}
+
+p { margin: 0 0 16px; }
+
+ul, ol { margin: 0 0 16px; padding-left: 24px; }
+li { margin-bottom: 8px; }
+
+.eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+em {
+  font-family: var(--f-serif);
+  font-style: italic;
+  color: var(--accent);
+  font-size: 1.06em;
+}
+
+strong { font-weight: 600; color: var(--ink); }
+
+code {
+  font-family: var(--f-mono);
+  font-size: 0.88em;
+  background: var(--paper-3);
+  padding: 1px 4px;
+}
+
+blockquote {
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-size: 24px;
+  line-height: 1.18;
+  color: var(--ink);
+  border-left: 2px solid var(--accent);
+  margin: 32px 0;
+  padding: 0 0 0 24px;
+  max-width: 60ch;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 24px 0 32px;
+  font-size: 13px;
+}
+
+th {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 400;
+  text-align: left;
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--ink);
+}
+
+td {
+  padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--rule-2);
+  color: var(--ink-2);
+  vertical-align: baseline;
+}
+
+th.n, td.n { text-align: right; font-variant-numeric: tabular-nums; }
+td.n { font-family: var(--f-display); }
+.sub { color: var(--muted); font-family: var(--f-mono); font-size: 11px; }
+
+table code { background: none; padding: 0; }

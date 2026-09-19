@@ -1,0 +1,72 @@
+/* DevX Doctrine — CSS custom properties and base styles.
+   Source: "The DevX Doctrine" v1.0, April 2026. See references/visual-doctrine.md for the
+   full token table, pattern library, and "never do" list — this file is the drop-in subset.
+
+   Google Fonts import (add as a <link> in <head>; this is HTML, not CSS, so it can't live here):
+   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+*/
+
+:root {
+  --ink:         #0A0A0A;
+  --ink-2:       #1A1A1A;
+  --muted:       #5C6066;
+  --muted-2:     #8A8F96;
+  --rule:        #E5E5E5;
+  --rule-2:      #F0F0F0;
+  --paper:       #FFFFFF;
+  --paper-2:     #FAFAF8;
+  --paper-3:     #F4F4F1;
+
+  --accent:      #1E6FFF;
+  --accent-soft: #E8F0FF;
+  --warn:        #C0392B;
+  --ok:          #0A7C53;
+
+  --f-display:   'Inter Tight', -apple-system, BlinkMacSystemFont, sans-serif;
+  --f-serif:     'Source Serif 4', Georgia, serif;
+  --f-mono:      'JetBrains Mono', 'SFMono-Regular', monospace;
+}
+
+body {
+  font-family: var(--f-display);
+  color: var(--ink);
+  background: var(--paper);
+  font-feature-settings: "ss01", "cv11", "tnum";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The one approved shadow in the system — a document/slide floating on a paper-3 canvas.
+   Do not add any other box-shadow (no card, button, or hover shadows). */
+.doctrine-page-shadow {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .04), 0 30px 60px -30px rgba(0, 0, 0, .18);
+}
+
+/* Hairline dividers — the default way to separate content instead of boxes/cards. */
+.doctrine-rule        { border: none; border-top: 1px solid var(--rule); }
+.doctrine-rule-subtle  { border: none; border-top: 1px solid var(--rule-2); }
+.doctrine-rule-heavy   { border: none; border-top: 1px solid var(--ink); }
+.doctrine-rule-accent  { border: none; border-top: 2px solid var(--accent); width: 72px; }
+
+/* Monospace eyebrow label, above a section title. */
+.doctrine-eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Italic accent emphasis for a word or two inside a headline. */
+.doctrine-emphasis {
+  font-family: var(--f-serif);
+  font-style: italic;
+  color: var(--accent);
+}
+
+/* Bordered container — sharp corners, no shadow. Use instead of a rounded, shadowed card. */
+.doctrine-container {
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  background: var(--paper);
+}

@@ -11,7 +11,6 @@ import pytest
 
 from jevdemo.stats import (
     Z_95,
-    break_even_micro,
     difference_interval,
     distinguishable,
     wilson_interval,
@@ -109,32 +108,9 @@ def test_identical_arms_are_never_distinguishable():
 
 # --- Break-even cost of a misroute -----------------------------------------
 
-def test_break_even_is_the_cost_gap_divided_by_the_accuracy_gap():
-    """cheap: 10 micro, 90%. dear: 260 micro, 95%.
-    Gap 250 micro over 0.05 accuracy -> a misroute must cost 5000 micro to justify the dear arm."""
-    assert break_even_micro(10, 0.90, 260, 0.95) == 5000
 
 
-def test_break_even_is_none_when_the_dearer_arm_is_not_more_accurate():
-    """A dearer arm that is no better is dominated at every misroute cost."""
-    assert break_even_micro(10, 0.92, 260, 0.90) is None
-    assert break_even_micro(10, 0.90, 260, 0.90) is None
 
-
-def test_break_even_is_zero_when_the_better_arm_is_also_cheaper():
-    """Zero means 'wins even if misroutes are free' — strict dominance, not a tie."""
-    assert break_even_micro(260, 0.90, 10, 0.95) == 0
-
-
-def test_break_even_rejects_accuracies_outside_the_unit_interval():
-    with pytest.raises(ValueError):
-        break_even_micro(10, 1.4, 260, 0.95)
-
-
-def test_break_even_rejects_float_money():
-    """Money is integer micro-dollars everywhere in this codebase."""
-    with pytest.raises(TypeError):
-        break_even_micro(10.5, 0.90, 260, 0.95)
 
 
 def test_z_95_is_the_two_sided_normal_quantile():
@@ -183,3 +159,48 @@ def test_spearman_needs_at_least_two_points():
     from jevdemo.stats import spearman
     assert spearman([1], [1]) is None
     assert spearman([], []) is None
+
+
+# --- Exact break-even, from counts rather than floats ----------------------
+
+def test_break_even_exact_avoids_the_float_division_error():
+    """(630_000_000 - 17_000) / (96/100 - 88/100) is exactly 7_874_787_500.
+    Computed through floats it lands on ...500.000004 and ceils to ...501."""
+    from jevdemo.stats import break_even_exact
+    assert break_even_exact(17_000, 88, 100, 630_000_000, 96, 100) == 7_874_787_500
+
+
+def test_break_even_exact_agrees_with_the_float_version_on_clean_inputs():
+    from jevdemo.stats import break_even_exact
+    assert break_even_exact(10, 90, 100, 260, 95, 100) == 5000
+
+
+def test_break_even_exact_rounds_up_a_genuine_fraction():
+    """A true fraction must still ceil: you cannot pay a partial unit and win."""
+    from jevdemo.stats import break_even_exact
+    # (100 - 0) / (1/3) = 300 exactly; (101 - 0)/(1/3) = 303
+    assert break_even_exact(0, 0, 3, 100, 1, 3) == 300
+    assert break_even_exact(0, 0, 3, 101, 1, 3) == 303
+
+
+def test_break_even_exact_is_none_when_dominated():
+    from jevdemo.stats import break_even_exact
+    assert break_even_exact(10, 92, 100, 260, 90, 100) is None
+    assert break_even_exact(10, 90, 100, 260, 90, 100) is None
+
+
+def test_break_even_exact_is_zero_when_cheaper_and_better():
+    from jevdemo.stats import break_even_exact
+    assert break_even_exact(260, 90, 100, 10, 95, 100) == 0
+
+
+def test_break_even_exact_rejects_float_money():
+    from jevdemo.stats import break_even_exact
+    with pytest.raises(TypeError):
+        break_even_exact(10.5, 90, 100, 260, 95, 100)
+
+
+def test_break_even_exact_rejects_an_empty_denominator():
+    from jevdemo.stats import break_even_exact
+    with pytest.raises(ValueError):
+        break_even_exact(10, 0, 0, 260, 95, 100)

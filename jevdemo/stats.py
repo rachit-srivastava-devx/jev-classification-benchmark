@@ -14,6 +14,7 @@ matching jevdemo.pricing.
 from __future__ import annotations
 
 import math
+from fractions import Fraction
 
 # Two-sided standard-normal quantile at 95%: Phi^-1(0.975).
 Z_95 = 1.959963984540054
@@ -104,55 +105,6 @@ def distinguishable(
     return lower > 0.0 or upper < 0.0
 
 
-def break_even_micro(
-    cost_cheap_micro: int,
-    accuracy_cheap: float,
-    cost_dear_micro: int,
-    accuracy_dear: float,
-) -> int | None:
-    """The misroute cost at which the dearer arm starts paying for itself.
-
-    Model: routing one ticket with arm a costs the call plus the expected cost of
-    being wrong, where K is what one misroute costs the business (the re-route,
-    the second touch, the delay):
-
-        E_a = c_a + K * (1 - alpha_a)
-
-    The dearer arm is preferable exactly when E_dear < E_cheap:
-
-        c_d + K(1 - alpha_d) < c_c + K(1 - alpha_c)
-        K(alpha_d - alpha_c) > c_d - c_c
-        K > (c_d - c_c) / (alpha_d - alpha_c)          [alpha_d > alpha_c]
-
-    Returns that threshold in micro-dollars, rounded up: the smallest integer
-    misroute cost at which the dearer arm wins.
-
-    None means the dearer arm is dominated — it costs more and is no more
-    accurate, so no misroute cost rescues it. Zero means the arm named 'dear'
-    is in fact both cheaper and better, and wins even when misroutes are free.
-    """
-    for value in (cost_cheap_micro, cost_dear_micro):
-        if not isinstance(value, int) or isinstance(value, bool):
-            raise TypeError(f"money must be integer micro-dollars, got {value!r}")
-    for value in (accuracy_cheap, accuracy_dear):
-        if not 0.0 <= value <= 1.0:
-            raise ValueError(f"accuracy must lie in [0, 1], got {value}")
-
-    accuracy_gap = accuracy_dear - accuracy_cheap
-    if accuracy_gap <= 0.0:
-        return None
-
-    cost_gap = cost_dear_micro - cost_cheap_micro
-    if cost_gap <= 0:
-        return 0
-
-    # 0.95 - 0.90 is 0.050000000000000044, which turns an exact 5000 into
-    # 5000.000000000006 and then, under ceil, into 5001. Round away the
-    # subtraction's error before taking the ceiling. Micro-dollars are already
-    # the smallest unit in play, so 6 places is far below anything reportable.
-    return math.ceil(round(cost_gap / accuracy_gap, 6))
-
-
 def _midranks(values: list[float]) -> list[float]:
     """Ranks with ties averaged. [10, 20, 20, 30] -> [1, 2.5, 2.5, 4]."""
     order = sorted(range(len(values)), key=lambda i: values[i])
@@ -196,3 +148,53 @@ def spearman(xs: list[float], ys: list[float]) -> float | None:
     if var_x == 0.0 or var_y == 0.0:
         return None
     return cov / math.sqrt(var_x * var_y)
+
+
+def break_even_exact(
+    cost_cheap: int, correct_cheap: int, n_cheap: int,
+    cost_dear: int, correct_dear: int, n_dear: int,
+) -> int | None:
+    """The misroute cost at which the dearer arm starts paying for itself.
+
+    Model: routing one ticket with arm a costs the call plus the expected cost of
+    being wrong, where K is what one misroute costs the business (the re-route,
+    the second touch, the delay):
+
+        E_a = c_a + K * (1 - alpha_a)
+
+    The dearer arm is preferable exactly when E_dear < E_cheap:
+
+        c_d + K(1 - alpha_d) < c_c + K(1 - alpha_c)
+        K(alpha_d - alpha_c) > c_d - c_c
+        K > (c_d - c_c) / (alpha_d - alpha_c)          [alpha_d > alpha_c]
+
+    Computed from the raw counts, without float division.
+
+    Accuracy here is a ratio of integers, so the whole threshold is rational and
+    can be evaluated exactly. The float path is accurate to roughly six decimal
+    places, which is invisible at $5,000 and visible at $7,874,787,500: the true
+    value lands on ...500.000004 and the ceiling turns it into ...501.
+
+    An off-by-one nano-dollar changes no decision, but the report presents this
+    number as the output of a proof, and a proof that is off by one is off.
+
+    Units are the caller's, and must match between the two costs. Returns the
+    Three outcomes: a threshold, 0 when the arm named 'dear' is in fact both
+    cheaper and better and wins even where misroutes are free, or None when it is
+    dominated -- dearer and no more accurate, so no value of K rescues it.
+    """
+    for value in (cost_cheap, cost_dear, correct_cheap, n_cheap, correct_dear, n_dear):
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise TypeError(f"counts and money must be integers, got {value!r}")
+    if n_cheap <= 0 or n_dear <= 0:
+        raise ValueError("cannot compute accuracy over an empty sample")
+
+    accuracy_gap = Fraction(correct_dear, n_dear) - Fraction(correct_cheap, n_cheap)
+    if accuracy_gap <= 0:
+        return None
+
+    cost_gap = cost_dear - cost_cheap
+    if cost_gap <= 0:
+        return 0
+
+    return math.ceil(Fraction(cost_gap) / accuracy_gap)

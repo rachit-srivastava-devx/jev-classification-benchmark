@@ -172,8 +172,13 @@ table.matrix .idx {
   p, blockquote, li { orphans: 3; widows: 3; }
 
   /* A table split across a page boundary loses its head, and a headless table of
-     numbers is unreadable. Keep each one whole where it fits on a page. */
-  table { break-inside: avoid; font-size: 8pt; }
+     numbers is unreadable — so the head repeats and rows never split. Long tables
+     are allowed to break: forbidding it on a twenty-row table strands the heading
+     alone at the foot of an otherwise empty page, which reads as broken. */
+  table { break-inside: auto; font-size: 8pt; }
+  table.categories, table.examples, table.failures, table.judge {
+    break-inside: avoid;
+  }
   table.matrix { font-size: 7pt; }
   thead { display: table-header-group; }
   tr { break-inside: avoid; }
@@ -198,3 +203,38 @@ pre {
 @media print {
   pre { font-size: 8.5pt; break-inside: avoid; }
 }
+
+/* --- cost vs effectiveness chart -------------------------------------------
+   Hairlines and one accent. No fills, no legend box: the labels sit against the
+   points they name, joined by a leader rather than a colour key. */
+
+svg.chart { width: 100%; height: auto; display: block; margin: 24px 0 32px; }
+svg.chart .grid   { stroke: var(--rule-2); stroke-width: 1; }
+svg.chart .axis   { stroke: var(--ink); stroke-width: 1; }
+svg.chart .leader { stroke: var(--rule); stroke-width: 1; }
+svg.chart .pt     { fill: var(--muted); }
+svg.chart .pt.jev { fill: var(--accent); }
+svg.chart .ax {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  fill: var(--muted-2);
+}
+svg.chart .ax-title {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  fill: var(--muted);
+}
+svg.chart .pt-label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  fill: var(--ink-2);
+}
+svg.chart .pt-label.jev { fill: var(--accent); font-weight: 500; }
+
+@media print {
+  svg.chart { break-inside: avoid; }
+}
+
+table.headline td:nth-child(4) { font-weight: 500; }

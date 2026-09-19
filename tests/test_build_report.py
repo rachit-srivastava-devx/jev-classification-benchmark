@@ -7,6 +7,8 @@ and both must stop the build rather than ship.
 
 from __future__ import annotations
 
+import html
+import re
 import sys
 from pathlib import Path
 
@@ -276,3 +278,165 @@ def test_code_span_content_is_escaped_not_marked_up():
     out = br.inline("`a < b` and `**x**`")
     assert "&lt;" in out
     assert "<strong>" not in out
+
+
+# --- the headline table -----------------------------------------------------
+# The full results table carries ten columns. That is the working table, not the
+# one a reader should meet first. This one answers three questions — is it
+# accurate, what does it cost, is it fast — and prices every row as a multiple
+# of the cheapest, because "132 times" lands where "$2.44" does not.
+
+
+def _two_arm_results():
+    return {"arms": [
+        {"arm": "jev", "kind": "jev", "reasoning": None, "accuracy": 0.92,
+         "measured": True, "correct": 92, "attempted": 100, "scored": 100,
+         "cost_per_1000_micro": 18500, "p50_latency_ms": 385.0, "p95_latency_ms": 558.0,
+         "input_tokens": 1, "output_tokens": 1, "reasoning_tokens": 0, "failures": {},
+         "price_in_micro_per_mtok": 1000, "price_out_micro_per_mtok": 1000,
+         "cost_reconciled": True, "accuracy_ci95": [0.85, 0.96]},
+        {"arm": "opus-5", "kind": "chat", "reasoning": None, "accuracy": 0.94,
+         "measured": True, "correct": 94, "attempted": 100, "scored": 100,
+         "cost_per_1000_micro": 2441400, "p50_latency_ms": 3253.0, "p95_latency_ms": 6025.0,
+         "input_tokens": 1, "output_tokens": 1, "reasoning_tokens": 0, "failures": {},
+         "price_in_micro_per_mtok": 1000, "price_out_micro_per_mtok": 1000,
+         "cost_reconciled": True, "accuracy_ci95": [0.85, 0.96]},
+    ]}
+
+
+def test_headline_table_prices_every_row_against_the_cheapest():
+    out = br.headline_table(_two_arm_results())
+    assert "1&times;" in out or "1×" in out
+    assert "132" in out  # opus-5 is 132x the price of jev
+
+
+def test_headline_table_is_sorted_cheapest_first():
+    out = br.headline_table(_two_arm_results())
+    assert out.index("jev") < out.index("opus-5")
+
+
+def test_headline_table_says_model_not_arm():
+    out = br.headline_table(_two_arm_results())
+    assert "<th>Model</th>" in out
+    assert ">Arm<" not in out
+
+
+def test_headline_table_excludes_an_unmeasured_model():
+    results = _two_arm_results()
+    results["arms"].append(
+        {"arm": "llama-4-scout", "kind": "chat", "reasoning": None, "accuracy": None,
+         "measured": False, "correct": 0, "attempted": 100, "scored": 0,
+         "cost_per_1000_micro": 0, "p50_latency_ms": None, "p95_latency_ms": None,
+         "input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0,
+         "failures": {"http_error": 100}})
+    out = br.headline_table(results)
+    assert "llama-4-scout" not in out
+
+
+# --- cost vs effectiveness chart --------------------------------------------
+# The spread is three orders of magnitude on cost and eighteen points on
+# accuracy. A linear x-axis would pile eleven models into the left margin, so
+# cost is logarithmic and the chart is drawn from results.json, never by hand.
+
+
+def test_chart_plots_every_measured_model():
+    out = br.cost_effectiveness_chart(_two_arm_results())
+    assert out.startswith("<svg")
+    assert "jev" in out and "opus-5" in out
+
+
+def test_chart_omits_an_unmeasured_model():
+    results = _two_arm_results()
+    results["arms"].append(
+        {"arm": "llama-4-scout", "kind": "chat", "reasoning": None, "accuracy": None,
+         "measured": False, "correct": 0, "attempted": 100, "scored": 0,
+         "cost_per_1000_micro": 0, "p50_latency_ms": None, "p95_latency_ms": None,
+         "input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0,
+         "failures": {"http_error": 100}})
+    assert "llama-4-scout" not in br.cost_effectiveness_chart(results)
+
+
+def test_chart_labels_both_axes():
+    out = br.cost_effectiveness_chart(_two_arm_results())
+    assert "Cost per 1,000 tickets" in out
+    assert "Accuracy" in out
+
+
+def test_chart_separates_overlapping_labels():
+    """Eighteen points inside an eighteen-point accuracy band collide by default."""
+    results = {"arms": [
+        dict(arm=f"m{i}", kind="chat", reasoning=None, accuracy=0.90, measured=True,
+             correct=90, attempted=100, scored=100,
+             cost_per_1000_micro=20000 + i, p50_latency_ms=100.0, p95_latency_ms=200.0,
+             input_tokens=1, output_tokens=1, reasoning_tokens=0, failures={})
+        for i in range(8)]}
+    out = br.cost_effectiveness_chart(results)
+    ys = [float(m) for m in re.findall(r"class='pt-label'[^>]*? y='([\d.]+)'", out)]
+    assert len(ys) == 8
+    assert all(abs(a - b) >= 9 for a, b in zip(sorted(ys), sorted(ys)[1:]))
+
+
+def test_chart_survives_a_single_model():
+    results = {"arms": [_two_arm_results()["arms"][0]]}
+    assert br.cost_effectiveness_chart(results).startswith("<svg")
+
+
+def test_chart_with_no_measured_model_says_so_rather_than_dividing_by_zero():
+    out = br.cost_effectiveness_chart({"arms": []})
+    assert "<svg" not in out
+    assert out.strip() != ""
+
+
+# --- categories and worked examples -----------------------------------------
+# Both are rendered from the same files the run used. A definition retyped into
+# the report is a definition that can drift from the one the models were given.
+
+
+def test_category_table_renders_every_label_definition():
+    out = br.category_table()
+    from jevdemo.labels import LABELS
+    for name, definition in LABELS.items():
+        assert name in out
+        assert html.escape(definition) in out
+
+
+def test_examples_table_shows_one_ticket_per_category():
+    from jevdemo.labels import LABELS
+    tickets = [{"id": f"t{i}", "text": f"ticket text {i}", "label": name}
+               for i, name in enumerate(LABELS)]
+    out = br.examples_table(tickets)
+    assert out.count("<tr>") == len(LABELS) + 1  # +1 for the head row
+    for name in LABELS:
+        assert name in out
+
+
+def test_examples_table_escapes_ticket_text():
+    out = br.examples_table([{"id": "t0", "text": "a <script> & b", "label": "billing"}])
+    assert "<script>" not in out
+    assert "&lt;script&gt;" in out
+
+
+def test_examples_table_with_no_tickets_says_so():
+    out = br.examples_table([])
+    assert "<table" not in out
+
+
+def test_headline_tokens_are_present():
+    results = _two_arm_results()
+    results["totals"] = {"records": 200, "computed_cost_micro": 0}
+    results["records"] = []
+    results["reasoning_negotiation"] = {}
+    table = br.tokens(results, None)
+    for key in ("jev_acc_cost", "dearest_model", "dearest_ratio", "unrecon_count"):
+        assert key in table, key
+
+
+def test_chart_paints_with_presentation_attributes_not_only_css():
+    """WeasyPrint's CSS engine rejects `fill`, so a chart styled only by class
+    prints as undifferentiated black. Every painted element carries its own
+    attribute; the classes stay for the screen."""
+    svg = br.cost_effectiveness_chart(_two_arm_results())
+    for frag in ("<circle", "<text", "<line"):
+        for el in re.findall(frag + r"[^>]*>", svg):
+            assert "fill=" in el or "stroke=" in el, el
+    assert br.ACCENT in svg          # the Jev point is the one accent on the chart

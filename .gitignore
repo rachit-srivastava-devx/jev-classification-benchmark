@@ -7,3 +7,4 @@ report.html
 tests/fixtures/captured/
 smoke.html
 judge.json
+judge.log

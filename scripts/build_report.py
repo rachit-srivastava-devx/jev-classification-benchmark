@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -49,6 +50,22 @@ def tokens(results: dict, judge: dict | None = None) -> dict[str, str]:
         "best_arm": best["arm"],
         "best_acc": f"{best['accuracy'] * 100:.0f}%",
     }
+    jev = next((a for a in measured if a["kind"] == "jev"), None)
+    dearest = max(measured, key=lambda a: a["cost_per_1000_micro"]) if measured else None
+    out["jev_acc_cost"] = (
+        "\u2014" if jev is None else usd(jev["cost_per_1000_micro"], 4)
+    )
+    # Ratio against Jev, not against the cheapest: Jev IS the cheapest here, and
+    # writing it as "against the cheapest" would stop being true the moment it
+    # is not.
+    out["dearest_ratio"] = (
+        "\u2014" if jev is None or dearest is None or not jev["cost_per_1000_micro"]
+        else f"{dearest['cost_per_1000_micro'] / jev['cost_per_1000_micro']:,.0f}"
+    )
+    out["dearest_model"] = "\u2014" if dearest is None else dearest["arm"]
+    out["unrecon_count"] = str(
+        sum(1 for a in results["arms"] if not a.get("cost_reconciled", True))
+    )
     out.update(_stat_tokens(results))
     out.update(_judge_tokens(judge))
     for a in arms:
@@ -250,7 +267,7 @@ def markdown(src: str) -> str:
 
 
 def results_table(results: dict) -> str:
-    head = ("<tr><th>Arm</th><th>Reasoning</th><th class='n'>Accuracy</th>"
+    head = ("<tr><th>Model</th><th>Reasoning</th><th class='n'>Accuracy</th>"
             "<th class='n'>Cost / 1k</th><th class='n'>P50 ms</th><th class='n'>P95 ms</th>"
             "<th class='n'>In</th><th class='n'>Out</th><th class='n'>Thinking</th>"
             "<th class='n'>Failures</th></tr>")
@@ -294,8 +311,224 @@ def _unmeasured_note(results: dict) -> str:
     if not missing:
         return ""
     names = ", ".join(f"<code>{html.escape(a['arm'])}</code>" for a in missing)
-    return (f"<p class='sub'>Excluded as unmeasured: {names}. These arms returned no "
+    return (f"<p class='sub'>Excluded as unmeasured: {names}. These models returned no "
             f"usable answer on any call; see the failure table for why.</p>")
+
+
+
+
+def _tickets() -> list[dict]:
+    """The dataset the run used, or an empty list if it is not beside the code.
+
+    Empty rather than raising: a missing dataset must show as an empty table the
+    reader can see, not as a report that silently omits the section.
+    """
+    path = ROOT / "data" / "tickets.json"
+    return json.loads(path.read_text()) if path.exists() else []
+
+
+def category_table() -> str:
+    """The five queues, rendered from the definitions the models were given.
+
+    Read from `jevdemo.labels`, never retyped. A definition restated in the
+    report is one that can quietly drift from the one under test.
+    """
+    from jevdemo.labels import LABELS
+    head = "<tr><th>Queue</th><th>Definition given to every model</th></tr>"
+    body = "".join(
+        f"<tr><td><code>{html.escape(name)}</code></td>"
+        f"<td>{html.escape(definition)}</td></tr>"
+        for name, definition in LABELS.items()
+    )
+    return f"<table class='results categories'><thead>{head}</thead><tbody>{body}</tbody></table>"
+
+
+def examples_table(tickets: list[dict]) -> str:
+    """One real ticket per category, quoted verbatim from the dataset.
+
+    First occurrence in file order, not a chosen one: picking the clearest
+    example of each category would describe the report's taste rather than the
+    data the models actually saw.
+    """
+    if not tickets:
+        return "<p class='sub'>No tickets were available to quote.</p>"
+    seen: dict[str, dict] = {}
+    for t in tickets:
+        seen.setdefault(t["label"], t)
+    head = "<tr><th>Hand label</th><th>The ticket, as sent</th></tr>"
+    body = "".join(
+        f"<tr><td><code>{html.escape(label)}</code></td>"
+        f"<td>{html.escape(t['text'])}</td></tr>"
+        for label, t in seen.items()
+    )
+    return f"<table class='results examples'><thead>{head}</thead><tbody>{body}</tbody></table>"
+
+
+def headline_table(results: dict) -> str:
+    """The table a reader meets first: accurate, what it costs, how fast.
+
+    Priced as a multiple of the cheapest model as well as in dollars, because the
+    spread here is three orders of magnitude and "132 times" is legible where
+    "$2.44 against $0.0185" is not. The full ten-column table is in the appendix;
+    this one is deliberately not it.
+    """
+    measured = sorted(_measured(results), key=lambda a: a["cost_per_1000_micro"])
+    cheapest = measured[0]["cost_per_1000_micro"] if measured else 0
+    head = ("<tr><th>Model</th><th class='n'>Accuracy</th>"
+            "<th class='n'>Cost per 1,000 tickets</th><th class='n'>vs cheapest</th>"
+            "<th class='n'>Typical speed</th></tr>")
+    body = []
+    for a in measured:
+        acc = "\u2014" if a["accuracy"] is None else f"{a['accuracy'] * 100:.0f}%"
+        p50 = "\u2014" if a["p50_latency_ms"] is None else f"{a['p50_latency_ms']:,.0f} ms"
+        if not cheapest:
+            mult = "\u2014"
+        else:
+            ratio = a["cost_per_1000_micro"] / cheapest
+            mult = "1\u00d7" if ratio < 1.05 else f"{ratio:,.0f}\u00d7"
+        body.append(
+            f"<tr><td><code>{html.escape(a['arm'])}</code></td>"
+            f"<td class='n'>{acc}</td>"
+            f"<td class='n'>{usd(a['cost_per_1000_micro'], 4)}</td>"
+            f"<td class='n'>{mult}</td><td class='n'>{p50}</td></tr>"
+        )
+    return (f"<table class='results headline'><thead>{head}</thead>"
+            f"<tbody>{''.join(body)}</tbody></table>")
+
+
+#: Chart geometry, in SVG user units. The viewBox is the document's content width
+#: so the chart is never scaled up and its type never disagrees with the prose.
+CHART_W, CHART_H = 760, 400
+# WeasyPrint's CSS engine does not implement `fill`, so a chart painted only by
+# stylesheet prints in undifferentiated black. Every SVG element therefore carries
+# its own presentation attributes; the classes remain for the screen.
+ACCENT, INK, INK_2, MUTED, MUTED_2 = "#1E6FFF", "#0A0A0A", "#1A1A1A", "#5C6066", "#8A8F96"
+RULE, RULE_2 = "#E5E5E5", "#F0F0F0"
+MONO = "JetBrains Mono, ui-monospace, monospace"
+PAINT = {
+    "grid": f"stroke='{RULE_2}' stroke-width='1'",
+    "axis": f"stroke='{INK}' stroke-width='1'",
+    "leader": f"stroke='{RULE}' stroke-width='1'",
+    "ax": f"fill='{MUTED_2}' font-family='{MONO}' font-size='10'",
+    "ax-title": (f"fill='{MUTED}' font-family='{MONO}' font-size='10' "
+                 "letter-spacing='1.2'"),
+    "pt": f"fill='{MUTED}'",
+    "pt jev": f"fill='{ACCENT}'",
+    "pt-label": f"fill='{INK_2}' font-family='{MONO}' font-size='10'",
+    "pt-label jev": f"fill='{ACCENT}' font-family='{MONO}' font-size='10' font-weight='500'",
+}
+CHART_PAD = {"l": 52, "r": 150, "t": 20, "b": 48}
+#: Minimum vertical gap between two point labels before one is nudged away.
+LABEL_GAP = 11.0
+
+NO_CHART = ("<p class='sub'>No model produced a measurable result, so there is "
+            "nothing to plot.</p>")
+
+
+def _declutter(points: list[dict]) -> None:
+    """Nudge colliding labels apart, top to bottom.
+
+    Nineteen models sit inside an eighteen-point accuracy band, so drawn at their
+    true y the labels overlap into an unreadable stack. The dot stays at the
+    measurement; only its label moves, which is why each one keeps a leader line.
+    """
+    # Sorted once. Re-sorting inside the loop reads a list that the previous
+    # iteration has already moved, so a label could be compared against itself.
+    ordered = sorted(points, key=lambda q: q["ly"])
+    for prev, cur in zip(ordered, ordered[1:]):
+        if cur["ly"] - prev["ly"] < LABEL_GAP:
+            cur["ly"] = prev["ly"] + LABEL_GAP
+
+
+def cost_effectiveness_chart(results: dict) -> str:
+    """Accuracy against cost, one dot per model, cost on a logarithmic axis.
+
+    Cost spans three orders of magnitude across this roster. On a linear axis
+    eleven of nineteen models would land inside the first tenth of the width, so
+    the axis is log10 and every decade is ruled. Drawn from results.json, so the
+    chart cannot disagree with the table beside it.
+    """
+    measured = [a for a in _measured(results) if a["cost_per_1000_micro"]]
+    if not measured:
+        return NO_CHART
+
+    x0, x1 = CHART_PAD["l"], CHART_W - CHART_PAD["r"]
+    y0, y1 = CHART_H - CHART_PAD["b"], CHART_PAD["t"]
+
+    costs = [a["cost_per_1000_micro"] / 1_000_000 for a in measured]
+    lo, hi = math.log10(min(costs)), math.log10(max(costs))
+    if hi - lo < 0.5:          # a single model, or a roster with no spread
+        lo, hi = lo - 0.5, hi + 0.5
+
+    accs = [a["accuracy"] for a in measured]
+    a_lo = max(0.0, math.floor(min(accs) * 20 - 1) / 20)
+    a_hi = min(1.0, math.ceil(max(accs) * 20 + 1) / 20)
+    if a_hi - a_lo < 0.02:
+        a_lo, a_hi = max(0.0, a_lo - 0.05), min(1.0, a_hi + 0.05)
+
+    def px(cost_usd: float) -> float:
+        return x0 + (math.log10(cost_usd) - lo) / (hi - lo) * (x1 - x0)
+
+    def py(acc: float) -> float:
+        return y0 - (acc - a_lo) / (a_hi - a_lo) * (y0 - y1)
+
+    parts = [
+        f"<svg viewBox='0 0 {CHART_W} {CHART_H}' class='chart' "
+        f"xmlns='http://www.w3.org/2000/svg' role='img' "
+        f"aria-label='Accuracy against cost per 1,000 tickets'>"
+    ]
+
+    # Horizontal rules at each 5-point accuracy step: the reader compares heights,
+    # so the gridlines run along the axis being compared and nowhere else.
+    step = 0.05
+    tick = math.ceil(a_lo / step) * step
+    while tick <= a_hi + 1e-9:
+        y = py(tick)
+        parts.append(f"<line class='grid' {PAINT['grid']} x1='{x0}' y1='{y:.1f}' x2='{x1}' y2='{y:.1f}'/>")
+        parts.append(f"<text class='ax' {PAINT['ax']} x='{x0 - 8}' y='{y + 3:.1f}' "
+                     f"text-anchor='end'>{tick * 100:.0f}%</text>")
+        tick += step
+
+    decade = math.floor(lo)
+    while decade <= math.ceil(hi):
+        value = 10 ** decade
+        if lo <= decade <= hi:
+            x = px(value)
+            parts.append(f"<line class='grid' {PAINT['grid']} x1='{x:.1f}' y1='{y0}' x2='{x:.1f}' y2='{y1}'/>")
+            label = f"${value:,.2f}" if value >= 0.01 else f"${value:.3f}"
+            parts.append(f"<text class='ax' {PAINT['ax']} x='{x:.1f}' y='{y0 + 18}' "
+                         f"text-anchor='middle'>{label}</text>")
+        decade += 1
+
+    parts.append(f"<line class='axis' {PAINT['axis']} x1='{x0}' y1='{y0}' x2='{x1}' y2='{y0}'/>")
+    parts.append(f"<text class='ax-title' {PAINT['ax-title']} x='{(x0 + x1) / 2:.0f}' y='{CHART_H - 8}' "
+                 f"text-anchor='middle'>Cost per 1,000 tickets</text>")
+    parts.append(f"<text class='ax-title' {PAINT['ax-title']} x='-{(y0 + y1) / 2:.0f}' y='14' "
+                 f"text-anchor='middle' transform='rotate(-90)'>Accuracy</text>")
+
+    points = [
+        {"name": a["arm"],
+         "x": px(a["cost_per_1000_micro"] / 1_000_000),
+         "y": py(a["accuracy"]),
+         "ly": py(a["accuracy"]),
+         "jev": a["kind"] == "jev"}
+        for a in measured
+    ]
+    _declutter(points)
+
+    for p in points:
+        cls = "pt jev" if p["jev"] else "pt"
+        paint = PAINT[cls]
+        parts.append(f"<line class='leader' {PAINT['leader']} x1='{p['x']:.1f}' y1='{p['y']:.1f}' "
+                     f"x2='{x1 + 6}' y2='{p['ly']:.1f}'/>")
+        parts.append(f"<circle class='{cls}' {paint} cx='{p['x']:.1f}' cy='{p['y']:.1f}' r='4'/>")
+        lab_cls = "pt-label jev" if p["jev"] else "pt-label"
+        lab_paint = PAINT[lab_cls]
+        parts.append(f"<text class='{lab_cls}' {lab_paint} x='{x1 + 10}' y='{p['ly'] + 3:.1f}'>"
+                     f"{html.escape(p['name'])}</text>")
+
+    parts.append("</svg>")
+    return "".join(parts)
 
 
 def break_even_table_html(results: dict) -> str:
@@ -306,7 +539,7 @@ def break_even_table_html(results: dict) -> str:
     not. The benchmark cannot supply that figure; only the business can.
     """
     rows = break_even_table(_measured(results))
-    head = ("<tr><th>Arm</th><th class='n'>Cost / 1k</th><th class='n'>Accuracy</th>"
+    head = ("<tr><th>Model</th><th class='n'>Cost / 1k</th><th class='n'>Accuracy</th>"
             "<th class='n'>Break-even cost of one misroute</th><th>Reading</th></tr>")
     by = {a["arm"]: a for a in _measured(results)}
     body = []
@@ -314,7 +547,7 @@ def break_even_table_html(results: dict) -> str:
         a = by[r["arm"]]
         acc = "\u2014" if a["accuracy"] is None else f"{a['accuracy'] * 100:.0f}%"
         if r["is_baseline"]:
-            threshold, note = "baseline", "the cheapest arm; every other row is priced against it"
+            threshold, note = "baseline", "the cheapest model; every other row is priced against it"
         elif r["break_even_nano"] is None:
             threshold, note = "\u2014", r["note"]
         else:
@@ -381,7 +614,7 @@ def failures_html(results: dict) -> str:
     if not kinds:
         return ("<p>No call in this run failed to produce a parseable label. "
                 f"Rate-limit retries: {totals.get('rate_limit_retries', 0)}.</p>")
-    head = ("<tr><th>Arm</th>" + "".join(f"<th class='n'>{html.escape(k)}</th>" for k in kinds)
+    head = ("<tr><th>Model</th>" + "".join(f"<th class='n'>{html.escape(k)}</th>" for k in kinds)
             + "<th class='n'>Total</th></tr>")
     body = []
     for a in results["arms"]:
@@ -408,7 +641,7 @@ def judge_html(judge: dict | None) -> str:
         return ("<p><strong>This experiment was not run for this build.</strong> The judge pass "
                 "is a separate, separately-paid pass over the stored predictions; re-run "
                 "<code>scripts/judge_run.py</code> and rebuild to populate this section.</p>")
-    head = ("<tr><th>Arm</th><th class='n'>Gold accuracy</th><th class='n'>Judge accuracy</th>"
+    head = ("<tr><th>Model</th><th class='n'>Gold accuracy</th><th class='n'>Judge accuracy</th>"
             "<th class='n'>Judge 95% CI</th><th class='n'>Row agreement</th>"
             "<th class='n'>Mean P(correct)</th><th>Note</th></tr>")
     body = []
@@ -443,6 +676,10 @@ def judge_html(judge: dict | None) -> str:
 #: line. A lowercase token is an inline value. `substitute` passes blocks through
 #: untouched so they survive the markdown render and are swapped afterwards.
 BLOCKS = {
+    "CATEGORY_TABLE": lambda r, j: category_table(),
+    "EXAMPLES_TABLE": lambda r, j: examples_table(_tickets()),
+    "COST_CHART": lambda r, j: cost_effectiveness_chart(r),
+    "HEADLINE_TABLE": lambda r, j: headline_table(r),
     "RESULTS_TABLE": lambda r, j: results_table(r),
     "BREAK_EVEN_TABLE": lambda r, j: break_even_table_html(r),
     "DISTINGUISHABILITY_MATRIX": lambda r, j: distinguishability_html(r),

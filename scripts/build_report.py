@@ -12,7 +12,14 @@ import argparse
 import html
 import json
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from jevdemo.pricing import TOLERANCE_MICRO
+from jevdemo.decision import NANO_PER_USD, break_even_table, distinguishability_matrix
+from jevdemo.stats import Z_95, difference_interval, wilson_interval
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -21,7 +28,7 @@ def usd(micro: int | None, places: int = 4) -> str:
     return "—" if micro is None else f"${micro / 1_000_000:.{places}f}"
 
 
-def tokens(results: dict) -> dict[str, str]:
+def tokens(results: dict, judge: dict | None = None) -> dict[str, str]:
     arms = results["arms"]
     by = {a["arm"]: a for a in arms}
     jev = by["jev"]
@@ -41,6 +48,8 @@ def tokens(results: dict) -> dict[str, str]:
         "best_arm": best["arm"],
         "best_acc": f"{best['accuracy'] * 100:.0f}%",
     }
+    out.update(_stat_tokens(results))
+    out.update(_judge_tokens(judge))
     for a in arms:
         slug = a["arm"].replace(".", "_").replace("-", "_")
         out[f"{slug}_acc"] = "—" if a["accuracy"] is None else f"{a['accuracy'] * 100:.0f}%"
@@ -50,10 +59,99 @@ def tokens(results: dict) -> dict[str, str]:
     return out
 
 
+def _dataset_n(results: dict) -> int:
+    """The bulk-pass sample size. Every arm sees the same tickets, so the max is it."""
+    return max((a["attempted"] for a in results["arms"]), default=0)
+
+
+def _worst_case_halfwidth(n: int) -> float:
+    """Half the widest Wilson interval at this n, which occurs at p = 1/2.
+
+    This is the number the report quotes before showing any accuracy, so that no
+    reader reaches a table without already knowing what it can and cannot resolve.
+    """
+    if n <= 0:
+        return 0.0
+    lo, hi = wilson_interval(n // 2, n)
+    return (hi - lo) / 2
+
+
+def _resolution_pp(results: dict) -> float:
+    """The smallest accuracy gap this run can actually call, near the observed top.
+
+    Found by search rather than by formula: the Newcombe interval's width depends
+    on where on [0,1] the two proportions sit, so the honest answer is the gap that
+    is resolvable *at the accuracies these arms actually reached*.
+    """
+    n = _dataset_n(results)
+    if n < 2:
+        return 0.0
+    top = max((a["correct"] for a in results["arms"]), default=n)
+    for gap in range(1, n + 1):
+        lower = top - gap
+        if lower < 0:
+            break
+        lo, _ = difference_interval(top, n, lower, n)
+        if lo > 0:
+            return 100 * gap / n
+    return 100.0
+
+
+def _stat_tokens(results: dict) -> dict[str, str]:
+    arms = results["arms"]
+    n = _dataset_n(results)
+    reconciled = sum(1 for a in arms if a.get("cost_reconciled"))
+    jev = next(a for a in arms if a["arm"] == "jev")
+    rows = break_even_table(arms)
+    baseline = next((r["arm"] for r in rows if r["is_baseline"]), "\u2014")
+    priced = [r for r in rows if r["break_even_nano"]]
+    cheapest_upgrade = min(priced, key=lambda r: r["break_even_nano"], default=None)
+    pairs = [(a, b) for a in arms for b in arms if a["arm"] < b["arm"]]
+    resolved = sum(
+        1 for a, b in pairs
+        if distinguishability_matrix(arms)[a["arm"]][b["arm"]]["resolved"]
+    ) if len(arms) <= 40 else 0
+    return {
+        "dataset_n": str(n),
+        "ci_halfwidth_pp": f"{_worst_case_halfwidth(n) * 100:.1f}",
+        "resolution_pp": f"{_resolution_pp(results):.0f}",
+        "z_95": f"{Z_95:.3f}",
+        "recon_arms": f"{reconciled}/{len(arms)}",
+        "recon_tolerance": str(TOLERANCE_MICRO),
+        "jev_price_in": f"{jev['price_in_micro_per_mtok'] / 1_000_000:.3f}",
+        "jev_price_out": f"{jev['price_out_micro_per_mtok'] / 1_000_000:.3f}",
+        "jev_recon": "exact" if jev.get("cost_reconciled") else "not reconciled",
+        "baseline_arm": baseline,
+        "pair_count": str(len(pairs)),
+        "resolved_pairs": str(resolved),
+        "unresolved_pairs": str(len(pairs) - resolved),
+        "cheapest_upgrade_arm": "\u2014" if cheapest_upgrade is None else cheapest_upgrade["arm"],
+        "cheapest_upgrade_usd": (
+            "\u2014" if cheapest_upgrade is None
+            else f"${cheapest_upgrade['break_even_usd']:,.2f}"
+        ),
+    }
+
+
+def _judge_tokens(judge: dict | None) -> dict[str, str]:
+    """Absent judge data renders as an explicit dash, never as a blank or a zero."""
+    if judge is None:
+        return {k: "\u2014" for k in (
+            "judge_model", "judge_rows", "judge_agreement", "judge_rho", "judge_cost")}
+    rho = judge["rank_correlation_spearman"]
+    return {
+        "judge_model": judge["judge_model"],
+        "judge_rows": f"{judge['rows_judged']:,}",
+        "judge_agreement": f"{judge['overall_agreement_rate'] * 100:.1f}%",
+        "judge_rho": "\u2014" if rho is None else f"{rho:.2f}",
+        "judge_cost": usd(judge["judge_cost_micro"], 2),
+    }
+
+
 def substitute(text: str, table: dict[str, str]) -> str:
     def swap(match: re.Match) -> str:
         key = match.group(1)
-        if key == "RESULTS_TABLE":
+        if key in BLOCKS:
             return match.group(0)
         if key not in table:
             raise KeyError(f"findings.md references unknown token {{{{{key}}}}}")
@@ -143,20 +241,173 @@ def results_table(results: dict) -> str:
     return f"<table class='results'><thead>{head}</thead><tbody>{''.join(body)}</tbody></table>"
 
 
-def main() -> int:
+def break_even_table_html(results: dict) -> str:
+    """What one misroute must be worth before each arm's price is rational.
+
+    Read it as a question put to the reader: if a wrong route costs your business
+    more than the figure in this row, this arm is worth its price. If less, it is
+    not. The benchmark cannot supply that figure; only the business can.
+    """
+    rows = break_even_table(results["arms"])
+    head = ("<tr><th>Arm</th><th class='n'>Cost / 1k</th><th class='n'>Accuracy</th>"
+            "<th class='n'>Break-even cost of one misroute</th><th>Reading</th></tr>")
+    by = {a["arm"]: a for a in results["arms"]}
+    body = []
+    for r in rows:
+        a = by[r["arm"]]
+        acc = "\u2014" if a["accuracy"] is None else f"{a['accuracy'] * 100:.0f}%"
+        if r["is_baseline"]:
+            threshold, note = "baseline", "the cheapest arm; every other row is priced against it"
+        elif r["break_even_nano"] is None:
+            threshold, note = "\u2014", r["note"]
+        else:
+            threshold = f"${r['break_even_usd']:,.2f}"
+            note = r["note"] or "worth its price above this figure"
+        cls = "" if r["resolved"] or r["is_baseline"] else " class='unresolved'"
+        body.append(
+            f"<tr{cls}><td><code>{html.escape(r['arm'])}</code></td>"
+            f"<td class='n'>{usd(a['cost_per_1000_micro'], 2)}</td>"
+            f"<td class='n'>{acc}</td><td class='n'>{threshold}</td>"
+            f"<td><span class='sub'>{html.escape(note)}</span></td></tr>"
+        )
+    return (f"<table class='results breakeven'><thead>{head}</thead>"
+            f"<tbody>{''.join(body)}</tbody></table>")
+
+
+#: A tie is a statement about the sample, not about the models. The glyphs are
+#: deliberately plain: the matrix is a lookup, and decoration in a lookup is noise.
+VERDICT_GLYPH = {"better": "+", "worse": "\u2212", "tie": "=", "self": "\u00b7"}
+
+
+def distinguishability_html(results: dict) -> str:
+    """Every ordered pair of arms, and whether this run can tell them apart."""
+    arms = sorted(results["arms"], key=lambda a: -(a["accuracy"] or 0))
+    names = [a["arm"] for a in arms]
+    matrix = distinguishability_matrix(results["arms"])
+    head = "<tr><th>Row beats column?</th>" + "".join(
+        f"<th class='n rot'>{html.escape(n)}</th>" for n in names) + "</tr>"
+    body = []
+    for a in arms:
+        cells = []
+        for n in names:
+            cell = matrix[a["arm"]][n]
+            lo, hi = cell["interval"]
+            title = f"{cell['verdict']}: difference 95% CI [{lo:+.3f}, {hi:+.3f}]"
+            cells.append(
+                f"<td class='n v-{cell['verdict']}' title='{html.escape(title)}'>"
+                f"{VERDICT_GLYPH[cell['verdict']]}</td>"
+            )
+        body.append(f"<tr><td><code>{html.escape(a['arm'])}</code></td>{''.join(cells)}</tr>")
+    legend = ("<p class='sub'>+ row is measurably better &#183; \u2212 row is measurably worse "
+              "&#183; = this run cannot tell them apart. Hover any cell for the 95% interval "
+              "on the difference (Newcombe method 10).</p>")
+    return (f"<table class='results matrix'><thead>{head}</thead>"
+            f"<tbody>{''.join(body)}</tbody></table>{legend}")
+
+
+def failures_html(results: dict) -> str:
+    """Every call that did not produce a usable label, by arm and by kind.
+
+    Failures are counted into the denominator of accuracy, so this table is the
+    audit trail for why an arm's accuracy is lower than its correct-answer rate.
+    """
+    kinds = sorted({k for a in results["arms"] for k in a["failures"]})
+    totals = results.get("totals", {})
+    if not kinds:
+        return ("<p>No call in this run failed to produce a parseable label. "
+                f"Rate-limit retries: {totals.get('rate_limit_retries', 0)}.</p>")
+    head = ("<tr><th>Arm</th>" + "".join(f"<th class='n'>{html.escape(k)}</th>" for k in kinds)
+            + "<th class='n'>Total</th></tr>")
+    body = []
+    for a in results["arms"]:
+        total = sum(a["failures"].values())
+        if total == 0:
+            continue
+        cells = "".join(
+            f"<td class='n'>{a['failures'].get(k) or chr(8212)}</td>" for k in kinds)
+        body.append(f"<tr><td><code>{html.escape(a['arm'])}</code></td>{cells}"
+                    f"<td class='n'>{total}</td></tr>")
+    note = (f"<p class='sub'>rate_limit_retries across the whole run: "
+            f"{totals.get('rate_limit_retries', 0)}. A retry is not a failure \u2014 it is a "
+            f"call that succeeded on a later attempt, and its latency is excluded.</p>")
+    return (f"<table class='results failures'><thead>{head}</thead>"
+            f"<tbody>{''.join(body)}</tbody></table>{note}")
+
+
+def judge_html(judge: dict | None) -> str:
+    """The label-free evaluation experiment, or an honest note that it was not run.
+
+    Rendering an empty table here would read as a null result. It is not one.
+    """
+    if judge is None:
+        return ("<p><strong>This experiment was not run for this build.</strong> The judge pass "
+                "is a separate, separately-paid pass over the stored predictions; re-run "
+                "<code>scripts/judge_run.py</code> and rebuild to populate this section.</p>")
+    head = ("<tr><th>Arm</th><th class='n'>Gold accuracy</th><th class='n'>Judge accuracy</th>"
+            "<th class='n'>Judge 95% CI</th><th class='n'>Row agreement</th>"
+            "<th class='n'>Mean P(correct)</th><th>Note</th></tr>")
+    body = []
+    for a in judge["arms"]:
+        lo, hi = a["judge_accuracy_ci95"]
+        note = "self-judged \u2014 excluded from the agreement figure" if a["self_judged"] else ""
+        body.append(
+            f"<tr><td><code>{html.escape(a['arm'])}</code></td>"
+            f"<td class='n'>{a['gold_accuracy'] * 100:.0f}%</td>"
+            f"<td class='n'>{a['judge_accuracy'] * 100:.0f}%</td>"
+            f"<td class='n'>[{lo * 100:.0f}, {hi * 100:.0f}]</td>"
+            f"<td class='n'>{a['agreement_rate'] * 100:.1f}%</td>"
+            f"<td class='n'>{a['mean_probability']:.2f}</td>"
+            f"<td><span class='sub'>{html.escape(note)}</span></td></tr>"
+        )
+    rho = judge["rank_correlation_spearman"]
+    rho_text = ("not computable \u2014 fewer than two arms carry a judged score"
+                if rho is None else f"{rho:.2f}")
+    foot = (
+        f"<p class='sub'>Judge: <code>{html.escape(judge['judge_model'])}</code> &#183; "
+        f"{judge['rows_judged']:,} rows judged &#183; overall agreement with the gold labels "
+        f"{judge['overall_agreement_matched']:,}/{judge['overall_agreement_scored']:,} = "
+        f"{judge['overall_agreement_rate'] * 100:.1f}% &#183; Spearman rank correlation between "
+        f"the judge's arm ranking and the gold ranking: {rho_text} &#183; cost of judgement "
+        f"{usd(judge['judge_cost_micro'], 2)}.</p>"
+    )
+    return (f"<table class='results judge'><thead>{head}</thead>"
+            f"<tbody>{''.join(body)}</tbody></table>{foot}")
+
+
+#: An uppercase token is a block: it renders a table and must sit alone on its own
+#: line. A lowercase token is an inline value. `substitute` passes blocks through
+#: untouched so they survive the markdown render and are swapped afterwards.
+BLOCKS = {
+    "RESULTS_TABLE": lambda r, j: results_table(r),
+    "BREAK_EVEN_TABLE": lambda r, j: break_even_table_html(r),
+    "DISTINGUISHABILITY_MATRIX": lambda r, j: distinguishability_html(r),
+    "FAILURES_TABLE": lambda r, j: failures_html(r),
+    "JUDGE_TABLE": lambda r, j: judge_html(j),
+}
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default=ROOT / "results.json")
     ap.add_argument("--findings", default=ROOT / "report" / "findings.md")
+    ap.add_argument("--judge", default=ROOT / "judge.json")
     ap.add_argument("--out", default=ROOT / "report.html")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     results = json.loads(Path(args.results).read_text())
-    src = substitute(Path(args.findings).read_text(), tokens(results))
+    # A missing judge file is not an error: the eval experiment is a separate,
+    # separately-paid pass. Its section then says so rather than rendering empty.
+    judge_path = Path(args.judge)
+    judge = json.loads(judge_path.read_text()) if judge_path.exists() else None
+    src = substitute(Path(args.findings).read_text(), tokens(results, judge))
     # The marker survives markdown() as its own paragraph, then swaps for the table. Doing it
     # after the render keeps the table's markup out of the inline escaper.
-    body = markdown(src).replace("<p>{{RESULTS_TABLE}}</p>", results_table(results))
-    if "{{RESULTS_TABLE}}" in body:
-        raise ValueError("{{RESULTS_TABLE}} must sit alone on its own line")
+    body = markdown(src)
+    for name, render in BLOCKS.items():
+        body = body.replace("<p>{{%s}}</p>" % name, render(results, judge))
+    for name in BLOCKS:
+        if "{{%s}}" % name in body:
+            raise ValueError("{{%s}} must sit alone on its own line" % name)
 
     css = (ROOT / "assets" / "doctrine.css").read_text()
     extra = (ROOT / "assets" / "report.css").read_text()

@@ -25,8 +25,8 @@ decisions endpoint and a chat model: on a chat model, `T_out` is chosen by the
 model at inference time, so the buyer does not control the bill.
 
 **Check.** Verified against every Jev call in the run by reconciling the
-provider-reported cost with `p_in · T_in`, at a tolerance of {{RECON_TOLERANCE}}
-micro-dollars. Result: {{JEV_RECON}}.
+provider-reported cost with `p_in · T_in`, at a tolerance of {{recon_tolerance}}
+micro-dollars. Result: {{jev_recon}}.
 
 ### Proposition 2 — the resolution bound
 
@@ -53,9 +53,9 @@ into an interval on the difference `δ = α_a − α_b`:
 
 Arm *a* is more accurate than arm *b* at 95% confidence precisely when `δ_lo > 0`. ∎
 
-**Consequence, stated before the results.** At `n = {{DATASET_N}}` and accuracy near
-90%, the half-width is about {{CI_HALFWIDTH_PP}} percentage points. Differences
-smaller than roughly {{RESOLUTION_PP}} points are therefore not resolvable by this
+**Consequence, stated before the results.** At `n = {{dataset_n}}` and accuracy near
+90%, the half-width is about {{ci_halfwidth_pp}} percentage points. Differences
+smaller than roughly {{resolution_pp}} points are therefore not resolvable by this
 experiment, no matter how the table is sorted. The results section reports which
 pairs clear that bar and which do not; a higher percentage that does not clear it
 is reported as a tie.

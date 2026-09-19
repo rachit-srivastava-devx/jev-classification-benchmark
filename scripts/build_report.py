@@ -641,15 +641,21 @@ def judge_html(judge: dict | None) -> str:
         return ("<p><strong>This experiment was not run for this build.</strong> The judge pass "
                 "is a separate, separately-paid pass over the stored predictions; re-run "
                 "<code>scripts/judge_run.py</code> and rebuild to populate this section.</p>")
-    head = ("<tr><th>Model</th><th class='n'>Gold accuracy</th><th class='n'>Judge accuracy</th>"
+    # Both accuracy columns are computed over judged rows only: a call that failed
+    # left no prediction to grade. A model that lost calls therefore reads higher
+    # here than in the measurement table, so the denominator is a column of its own.
+    head = ("<tr><th>Model</th><th class='n'>Judged rows</th>"
+            "<th class='n'>Gold accuracy<br>over judged rows</th>"
+            "<th class='n'>Judge accuracy</th>"
             "<th class='n'>Judge 95% CI</th><th class='n'>Row agreement</th>"
             "<th class='n'>Mean P(correct)</th><th>Note</th></tr>")
     body = []
     for a in judge["arms"]:
         lo, hi = a["judge_accuracy_ci95"]
-        note = "self-judged \u2014 excluded from the agreement figure" if a["self_judged"] else ""
+        note = "self-judged \u2014 excluded from the overall agreement figure" if a["self_judged"] else ""
         body.append(
             f"<tr><td><code>{html.escape(a['arm'])}</code></td>"
+            f"<td class='n'>{a['rows']:,}</td>"
             f"<td class='n'>{a['gold_accuracy'] * 100:.0f}%</td>"
             f"<td class='n'>{a['judge_accuracy'] * 100:.0f}%</td>"
             f"<td class='n'>[{lo * 100:.0f}, {hi * 100:.0f}]</td>"
@@ -658,14 +664,16 @@ def judge_html(judge: dict | None) -> str:
             f"<td><span class='sub'>{html.escape(note)}</span></td></tr>"
         )
     rho = judge["rank_correlation_spearman"]
-    rho_text = ("not computable \u2014 fewer than two arms carry a judged score"
+    rho_text = ("not computable \u2014 fewer than two models carry a judged score"
                 if rho is None else f"{rho:.2f}")
     foot = (
         f"<p class='sub'>Judge: <code>{html.escape(judge['judge_model'])}</code> &#183; "
-        f"{judge['rows_judged']:,} rows judged &#183; overall agreement with the gold labels "
+        f"{judge['rows_judged']:,} rows judged, "
+        f"{judge['rows_skipped_arm_failure']:,} skipped because the model returned no "
+        f"prediction to grade &#183; overall agreement with the gold labels "
         f"{judge['overall_agreement_matched']:,}/{judge['overall_agreement_scored']:,} = "
         f"{judge['overall_agreement_rate'] * 100:.1f}% &#183; Spearman rank correlation between "
-        f"the judge's arm ranking and the gold ranking: {rho_text} &#183; cost of judgement "
+        f"the judge's model ranking and the gold ranking: {rho_text} &#183; cost of judgement "
         f"{usd(judge['judge_cost_micro'], 2)}.</p>"
     )
     return (f"<table class='results judge'><thead>{head}</thead>"

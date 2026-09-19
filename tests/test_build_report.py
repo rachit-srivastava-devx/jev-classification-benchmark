@@ -440,3 +440,28 @@ def test_chart_paints_with_presentation_attributes_not_only_css():
         for el in re.findall(frag + r"[^>]*>", svg):
             assert "fill=" in el or "stroke=" in el, el
     assert br.ACCENT in svg          # the Jev point is the one accent on the chart
+
+
+def _judge_fixture():
+    return {"judge_model": "m", "rows_judged": 84, "rows_skipped_arm_failure": 16,
+            "overall_agreement_scored": 84, "overall_agreement_matched": 83,
+            "overall_agreement_rate": 0.988, "rank_correlation_spearman": 0.84,
+            "judge_cost_micro": 1_533_532,
+            "arms": [{"arm": "mistral-small-low", "rows": 84,
+                      "gold_accuracy": 0.9405, "judge_accuracy": 0.9286,
+                      "judge_accuracy_ci95": [0.85, 0.97], "agreement_rate": 0.988,
+                      "mean_probability": 0.917, "self_judged": False}]}
+
+
+def test_judge_table_publishes_the_denominator_it_scored_over():
+    """Its gold column is computed over judged rows only, so a model that lost calls
+    reads 94% here and 79% in the measurement table. Without the row count and a
+    stated denominator that looks like the report contradicting itself."""
+    out = br.judge_html(_judge_fixture())
+    assert ">84<" in out                      # the denominator is on the row
+    assert "judged rows" in out.lower()       # and named in the header or caption
+
+
+def test_judge_caption_says_model_not_arm():
+    # A word-boundary match, not a substring one: "Spearman" contains "arm".
+    assert not re.search(r"\barms?\b", br.judge_html(_judge_fixture()), re.I)

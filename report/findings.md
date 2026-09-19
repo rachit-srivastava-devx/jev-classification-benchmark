@@ -282,9 +282,18 @@ the approach LangWatch sells as Instant Evals — where a separate model is show
 ticket and the proposed queue and asked whether the routing is right, with no
 answer key at all.
 
-The question is whether that grader's verdict tracks the hand labels well enough to
-stand in for them. The table reports, per model, what the grader scored against what
-the answer key scored, and the correlation between the two across models.
+**It tracks the answer key closely enough to be useful, and not closely enough to
+replace it.** Across {{judge_rows}} graded predictions, {{judge_model}} agreed with
+the hand label {{judge_agreement}} of the time, and its per-model accuracy ranking
+correlates with the hand-labelled one at rho = {{judge_rho}}. The whole pass cost
+{{judge_cost}}.
+
+Read that as: a label-free grader would have found the same shape — the same models
+near the top, the same one at the bottom — without an answer key existing. It would
+not have given you the individual accuracies, because a 3.2% disagreement rate is a
+third of the {{resolution_pp}}-point band this sample can resolve in the first place.
+For monitoring a live queue, where no answer key is possible, that is the trade you
+are being offered.
 
 {{JUDGE_TABLE}}
 

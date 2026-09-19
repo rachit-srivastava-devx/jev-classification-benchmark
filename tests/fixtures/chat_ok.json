@@ -1,0 +1,1 @@
+{"id":"gen-1789847100-abc","model":"anthropic/claude-sonnet-5","choices":[{"index":0,"message":{"role":"assistant","content":"{\"label\":\"billing\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":71,"completion_tokens":11,"total_tokens":82,"cost":0.000252,"completion_tokens_details":{"reasoning_tokens":0}}}

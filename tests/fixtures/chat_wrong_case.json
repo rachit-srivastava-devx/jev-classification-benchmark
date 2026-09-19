@@ -1,0 +1,1 @@
+{"id": "gen-syn", "model": "synthetic", "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"label\":\"Billing\"}"}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 5, "total_tokens": 55, "cost": 1e-05, "completion_tokens_details": {"reasoning_tokens": 0}}}

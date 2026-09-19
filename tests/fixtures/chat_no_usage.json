@@ -1,0 +1,1 @@
+{"id": "gen-syn", "model": "synthetic", "choices": [{"index": 0, "message": {"role": "assistant", "content": "{\"label\":\"billing\"}"}, "finish_reason": "stop"}]}

@@ -1,0 +1,1 @@
+{"id":"gen-1789847200-def","model":"google/gemini-3.8-flash","choices":[{"index":0,"message":{"role":"assistant","content":"{\"label\":\"billing\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":44,"completion_tokens":176,"total_tokens":220,"cost":0.000693,"completion_tokens_details":{"reasoning_tokens":171}}}

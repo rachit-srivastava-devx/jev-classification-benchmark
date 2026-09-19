@@ -1,0 +1,527 @@
+[
+  {
+    "id": "t001",
+    "text": "My card was charged twice this month and the invoice only shows one line item. I need the duplicate reversed before the statement closes on Friday, and I would like written confirmation once it is done.",
+    "label": "billing"
+  },
+  {
+    "id": "t002",
+    "text": "The renewal came through at a higher rate than last year with no warning. Can someone explain the increase and tell me whether the previous rate can be honoured for the remainder of the term?",
+    "label": "billing"
+  },
+  {
+    "id": "t003",
+    "text": "We cancelled in March but a charge landed in April. Please refund it. The confirmation email for the cancellation is dated the fourteenth and I can forward it if that helps.",
+    "label": "billing"
+  },
+  {
+    "id": "t004",
+    "text": "Our finance team cannot download the December invoice. The link in the email returns a blank page and the portal shows the document as pending, which is blocking the quarterly close.",
+    "label": "billing",
+    "note": "Sounds like a broken link, but the request is for an invoice document."
+  },
+  {
+    "id": "t005",
+    "text": "The payout that was scheduled for Tuesday still has not reached our bank. The dashboard says it was sent. Our bank says nothing arrived. Can you trace it and tell us where it sits?",
+    "label": "billing"
+  },
+  {
+    "id": "t006",
+    "text": "We were charged sales tax at the wrong rate for the last two invoices. Our registered address changed in January. Please correct the rate and issue credit notes for the difference.",
+    "label": "billing"
+  },
+  {
+    "id": "t007",
+    "text": "I want to switch from monthly to annual payment. Will the unused portion of this month be credited, or does the annual term start fresh from the date of the switch?",
+    "label": "billing",
+    "note": "Touches a plan change, but the question is purely about proration."
+  },
+  {
+    "id": "t008",
+    "text": "Please stop charging the card ending in 4421 and use the one ending in 9902 instead. The old card was cancelled by our bank after a fraud alert last week.",
+    "label": "billing",
+    "note": "A card change: could read as a profile setting rather than a charge."
+  },
+  {
+    "id": "t009",
+    "text": "The receipt does not show our VAT number, so our accountants will not accept it. Can you reissue it with the number on the document and send it to the address on file?",
+    "label": "billing"
+  },
+  {
+    "id": "t010",
+    "text": "We are being charged for twelve seats but our agreement says ten. The extra two appeared in June and we never approved them. Please correct the amount and refund the overage.",
+    "label": "billing",
+    "note": "Mentions seats, which is normally an access topic, but the ask is a refund."
+  },
+  {
+    "id": "t011",
+    "text": "A credit was promised by our representative in writing and it has not appeared on any statement since. It has been six weeks. Who do I chase to get it applied?",
+    "label": "billing"
+  },
+  {
+    "id": "t012",
+    "text": "The auto renew flag seems to have fired even though we opted out in the portal before the deadline. We now have a charge we did not intend to make. Please reverse it.",
+    "label": "billing"
+  },
+  {
+    "id": "t013",
+    "text": "Can you send a consolidated statement covering all four of our workspaces for the fiscal year? Our auditors need one document rather than forty eight separate receipts.",
+    "label": "billing",
+    "note": "Spans four workspaces, which sounds organisational, but the artefact is a statement."
+  },
+  {
+    "id": "t014",
+    "text": "The refund you issued on the ninth was for the wrong amount. We expected the full charge back and received roughly half of it with no explanation attached.",
+    "label": "billing"
+  },
+  {
+    "id": "t015",
+    "text": "Our purchase order number is missing from the latest invoice, so it cannot be matched in our system and payment will be delayed until it is added. Please reissue.",
+    "label": "billing"
+  },
+  {
+    "id": "t016",
+    "text": "I was told the trial was free but a charge appeared on day eight. Nothing in the signup flow warned me. I would like it reversed and the trial ended.",
+    "label": "billing"
+  },
+  {
+    "id": "t017",
+    "text": "The currency on our invoices switched from pounds to dollars without notice, and the conversion has cost us on every payment since. Can it be set back to pounds?",
+    "label": "billing"
+  },
+  {
+    "id": "t018",
+    "text": "We need to change the address that appears on all future receipts. Our registered office moved in August and the old one is still printed on every document.",
+    "label": "billing",
+    "note": "An address change, which is usually a profile edit; here it is the address on receipts."
+  },
+  {
+    "id": "t019",
+    "text": "Payment failed three times this week even though the card is valid and has funds. Your emails say the issuer declined it, our issuer says no request arrived.",
+    "label": "billing",
+    "note": "Reads like a defect, but the subject is a failed payment."
+  },
+  {
+    "id": "t020",
+    "text": "Please confirm what we will be charged if we downgrade mid term. I have read the terms twice and cannot tell whether the remaining months are forfeited.",
+    "label": "billing"
+  },
+  {
+    "id": "t021",
+    "text": "The webhook endpoint has been returning a 502 from your side since yesterday morning. Our retries are backing off and events are piling up. Nothing changed on our end.",
+    "label": "technical"
+  },
+  {
+    "id": "t022",
+    "text": "Search returns no results for queries that clearly match existing records. It worked on Monday. The same query in the API returns the expected rows, so it looks like the interface.",
+    "label": "technical"
+  },
+  {
+    "id": "t023",
+    "text": "The export job hangs at ninety percent and never finishes. We have tried three times with the same dataset, in two browsers, and on a different network connection.",
+    "label": "technical",
+    "note": "A defect on our side would be the alternative reading; the symptom is ours to fix."
+  },
+  {
+    "id": "t024",
+    "text": "Your Slack integration stopped posting after we reauthorised it. The connection shows as healthy in the panel but no message has arrived in the channel for two days.",
+    "label": "technical"
+  },
+  {
+    "id": "t025",
+    "text": "The mobile app crashes on launch after the latest update on iOS 27. It opens for about a second, shows the splash screen, then closes without an error message.",
+    "label": "technical"
+  },
+  {
+    "id": "t026",
+    "text": "Uploads over roughly twenty megabytes fail with a generic error. Smaller files go through fine. This started after your maintenance window on the eleventh.",
+    "label": "technical"
+  },
+  {
+    "id": "t027",
+    "text": "Timestamps in the report are eight hours off for everyone on our team. The workspace is set to London. The raw API values look correct, so it is the rendering.",
+    "label": "technical"
+  },
+  {
+    "id": "t028",
+    "text": "The dashboard shows stale numbers. A record we deleted an hour ago still appears in the summary tile, though it is gone from the detail view underneath it.",
+    "label": "technical"
+  },
+  {
+    "id": "t029",
+    "text": "We are seeing rate limit responses well below the documented ceiling. Our own logs show forty requests a minute against a stated limit of six hundred.",
+    "label": "technical"
+  },
+  {
+    "id": "t030",
+    "text": "Two of our automations fire twice for the same trigger. The duplicate arrives about four seconds after the first and carries an identical event identifier.",
+    "label": "technical"
+  },
+  {
+    "id": "t031",
+    "text": "The page freezes when a filter with more than five conditions is applied. The tab becomes unresponsive and the browser eventually offers to kill it.",
+    "label": "technical"
+  },
+  {
+    "id": "t032",
+    "text": "Emails from your system are landing in spam for everyone on our domain since Thursday. Nothing changed in our mail configuration. Headers show a failed signature check.",
+    "label": "technical"
+  },
+  {
+    "id": "t033",
+    "text": "Our scheduled sync has not run since the fourteenth. The history is empty for that date onward and no failure was reported anywhere we can see.",
+    "label": "technical"
+  },
+  {
+    "id": "t034",
+    "text": "The CSV you produce has unescaped quotes in the description column, which breaks every parser we have tried. It was fine in files generated last month.",
+    "label": "technical"
+  },
+  {
+    "id": "t035",
+    "text": "After the update, keyboard shortcuts stopped working inside the editor. They still work elsewhere in the product, which suggests the editor is swallowing the events.",
+    "label": "technical"
+  },
+  {
+    "id": "t036",
+    "text": "The graph renders with no axis labels in Firefox. In Chrome it is fine. Same data, same view, both on the current release of each browser.",
+    "label": "technical"
+  },
+  {
+    "id": "t037",
+    "text": "Our API keys work against the production host but return 403 against the sandbox, which we were told mirrors it. Nothing in the docs mentions separate keys.",
+    "label": "technical",
+    "note": "Mentions keys and a 403, but the fault is an environment mismatch, not access provisioning."
+  },
+  {
+    "id": "t038",
+    "text": "The undo button restores the wrong version. It skips back two states rather than one, and there is no way to step forward again once it happens.",
+    "label": "technical"
+  },
+  {
+    "id": "t039",
+    "text": "Pagination repeats records across pages when the underlying set changes during the walk. We end up with duplicates in every large import we run.",
+    "label": "technical"
+  },
+  {
+    "id": "t040",
+    "text": "Your status page says everything is operational but our requests have been timing out for forty minutes from two separate regions. Please check.",
+    "label": "technical"
+  },
+  {
+    "id": "t041",
+    "text": "I cannot sign in. The reset email never arrives, and I have checked spam and asked our mail team to look at the logs. Nothing has been delivered in three attempts.",
+    "label": "account"
+  },
+  {
+    "id": "t042",
+    "text": "Please remove Priya from the workspace. She left the company on Friday and her session is apparently still active, which our security team has flagged.",
+    "label": "account"
+  },
+  {
+    "id": "t043",
+    "text": "Two of our engineers need admin rights so they can manage integrations without going through me every time. They are currently on the standard role.",
+    "label": "account",
+    "note": "Admin rights for integrations: seat rights, not a plan question."
+  },
+  {
+    "id": "t044",
+    "text": "My two factor device was lost with my phone. I have the backup codes written down but the prompt will not accept them. How do I get back in?",
+    "label": "account"
+  },
+  {
+    "id": "t045",
+    "text": "We need single sign on enforced for everyone on our domain. Right now people can still sign in with a password, which defeats the point of the rollout.",
+    "label": "account"
+  },
+  {
+    "id": "t046",
+    "text": "The name shown on my profile is wrong after our directory sync ran. It now shows my maiden name and I cannot edit the field myself.",
+    "label": "account"
+  },
+  {
+    "id": "t047",
+    "text": "Can you merge my two logins? I have one under my work address and one under a personal address, and my history is split across both of them.",
+    "label": "account"
+  },
+  {
+    "id": "t048",
+    "text": "A former contractor still appears in the member list with edit rights. His access should have been revoked in June. Please remove him and tell us when it was last used.",
+    "label": "account"
+  },
+  {
+    "id": "t049",
+    "text": "I am locked out after too many failed attempts. The message says to try again in thirty minutes and it has been four hours with the same message.",
+    "label": "account"
+  },
+  {
+    "id": "t050",
+    "text": "We want to transfer ownership of the workspace to our operations lead. I am leaving the company at the end of the month and nobody else has that role.",
+    "label": "account"
+  },
+  {
+    "id": "t051",
+    "text": "New joiners are landing in the wrong group and get read only rights. Our provisioning rules look correct but every invite this week has behaved the same way.",
+    "label": "account"
+  },
+  {
+    "id": "t052",
+    "text": "I need a list of everyone who can see the finance folder, with their roles, for our annual review. The panel only shows direct members, not inherited ones.",
+    "label": "account"
+  },
+  {
+    "id": "t053",
+    "text": "The invite link we sent expired before our new starter could use it, and resending produces a link that expires immediately. She starts on Monday.",
+    "label": "account"
+  },
+  {
+    "id": "t054",
+    "text": "Please disable the login for our shared address. We are moving to individual credentials and want the shared one closed before the audit next week.",
+    "label": "account"
+  },
+  {
+    "id": "t055",
+    "text": "My permissions changed overnight and I can no longer publish. Nobody on our team made a change, and the audit trail shows nothing at all for my user.",
+    "label": "account",
+    "note": "Could read as a defect, but the resolution is a permissions fix."
+  },
+  {
+    "id": "t056",
+    "text": "We need to restrict who can invite new members. Right now anyone with edit rights can add people, and we have picked up four unexpected members this month.",
+    "label": "account",
+    "note": "Restricting invites sits between access control and organisational policy."
+  },
+  {
+    "id": "t057",
+    "text": "Can you tell me which sessions are currently open for my user and end all of them except this one? I signed in from a machine I no longer have.",
+    "label": "account"
+  },
+  {
+    "id": "t058",
+    "text": "Our security policy requires a thirty day password rotation. I cannot find the setting anywhere in the admin panel. Does the product support it?",
+    "label": "account"
+  },
+  {
+    "id": "t059",
+    "text": "I want to change the email address I sign in with. The field is greyed out and the tooltip says to contact support, so here I am.",
+    "label": "account"
+  },
+  {
+    "id": "t060",
+    "text": "Please confirm the workspace has been closed and our data deleted. We ended our agreement in July and the login still works, which it should not.",
+    "label": "account",
+    "note": "Ends an agreement, which sounds commercial, but the ask is to close access."
+  },
+  {
+    "id": "t061",
+    "text": "What does the enterprise tier include that we do not have today? We are on the growth plan and keep hitting a wall on audit logs and data residency.",
+    "label": "sales",
+    "note": "A plan comparison that reads as a feature complaint about audit logs."
+  },
+  {
+    "id": "t062",
+    "text": "Is there a discount for a two year commitment paid up front? We are budgeting for next year and want to know before we lock the number in.",
+    "label": "sales"
+  },
+  {
+    "id": "t063",
+    "text": "We are comparing you against two competitors for a fifty seat rollout. Can someone walk our team through how the permissions model differs at that size?",
+    "label": "sales"
+  },
+  {
+    "id": "t064",
+    "text": "Do you offer a nonprofit rate? We are a registered charity with about thirty staff and the standard per seat price is beyond what we can approve.",
+    "label": "sales"
+  },
+  {
+    "id": "t065",
+    "text": "Which tier includes the audit export? The comparison table lists it twice with different wording and I cannot tell if it applies to ours.",
+    "label": "sales"
+  },
+  {
+    "id": "t066",
+    "text": "We would need a signed data processing agreement and a security review before purchase. Who on your side handles that, and how long does it usually take?",
+    "label": "sales",
+    "note": "Procurement and security review, which could be routed to legal rather than a team here."
+  },
+  {
+    "id": "t067",
+    "text": "Can we trial the advanced analytics module before committing? We have the standard package and want to see it against our own data first.",
+    "label": "sales"
+  },
+  {
+    "id": "t068",
+    "text": "What happens to the price if we grow from twenty to a hundred seats mid term? Is there a band structure or is it strictly linear?",
+    "label": "sales"
+  },
+  {
+    "id": "t069",
+    "text": "We need on premises deployment for a regulated client. Is that available at any tier, and what does it change about support and updates?",
+    "label": "sales"
+  },
+  {
+    "id": "t070",
+    "text": "Our procurement team requires three year pricing in writing before they will approve anything. Can you produce a quote that holds the rate for that period?",
+    "label": "sales"
+  },
+  {
+    "id": "t071",
+    "text": "Is the API rate ceiling different on the higher plans? We are close to the documented limit and would rather upgrade than re engineer our pipeline.",
+    "label": "sales",
+    "note": "Mentions rate limits, which is usually a defect topic, but the question is what a plan includes."
+  },
+  {
+    "id": "t072",
+    "text": "Do you have a partner programme? We implement systems for mid market clients and would like to resell rather than buy individual licences each time.",
+    "label": "sales"
+  },
+  {
+    "id": "t073",
+    "text": "We would like a quote for adding the compliance module to our current agreement, with the effect on our renewal date spelled out clearly.",
+    "label": "sales",
+    "note": "A quote that moves the renewal date, so it touches charges too."
+  },
+  {
+    "id": "t074",
+    "text": "Can someone explain the difference between the two support levels? The page says priority response on both, with no stated time on either.",
+    "label": "sales"
+  },
+  {
+    "id": "t075",
+    "text": "Our pilot finishes in three weeks and the team wants to go wide. What is the fastest path to a hundred seats and who do we talk to?",
+    "label": "sales"
+  },
+  {
+    "id": "t076",
+    "text": "Is there a per usage option instead of per seat? Most of our staff sign in twice a month and the current model is poor value for us.",
+    "label": "sales"
+  },
+  {
+    "id": "t077",
+    "text": "Does the plan above ours remove the five workspace cap? We are at the limit and want to know whether upgrading solves it before we commit.",
+    "label": "sales"
+  },
+  {
+    "id": "t078",
+    "text": "We need references from customers in financial services at our scale before we can proceed internally. Can you put us in touch with two?",
+    "label": "sales",
+    "note": "A request for customer references, which is close to general correspondence."
+  },
+  {
+    "id": "t079",
+    "text": "What is included in onboarding at the tier we are considering? Our team is distributed across four time zones and we would need training sessions in each.",
+    "label": "sales"
+  },
+  {
+    "id": "t080",
+    "text": "Is the price on your public page current? A colleague was quoted something different last quarter and we want to know which figure to budget against.",
+    "label": "sales"
+  },
+  {
+    "id": "t081",
+    "text": "Your documentation has a broken link on the authentication page. The example under the second heading points at a page that no longer exists.",
+    "label": "other"
+  },
+  {
+    "id": "t082",
+    "text": "I would like to unsubscribe from the product newsletter but keep receiving service notices. The footer link only offers to stop everything at once.",
+    "label": "other",
+    "note": "Unsubscribing is a preference, which sits near profile settings."
+  },
+  {
+    "id": "t083",
+    "text": "Could you pass on some praise to whoever rebuilt the onboarding flow? Our new starters got through it in ten minutes with no questions at all.",
+    "label": "other"
+  },
+  {
+    "id": "t084",
+    "text": "Is there a public roadmap? We keep guessing at what is coming and it makes our own planning harder than it needs to be.",
+    "label": "other"
+  },
+  {
+    "id": "t085",
+    "text": "I am writing about a job posting on your site. The link in the listing goes nowhere and I could not find an address to send an application to.",
+    "label": "other"
+  },
+  {
+    "id": "t086",
+    "text": "We would like to write a case study about our rollout. Who handles that, and is there a process for approving what we publish?",
+    "label": "other",
+    "note": "A case study request, close to marketing rather than support."
+  },
+  {
+    "id": "t087",
+    "text": "Your office address on the contact page is out of date. I posted a letter to it last month and it came back marked as undeliverable.",
+    "label": "other"
+  },
+  {
+    "id": "t088",
+    "text": "Can I get a copy of your accessibility statement? Our procurement checklist requires one and I could not find it anywhere on the site.",
+    "label": "other"
+  },
+  {
+    "id": "t089",
+    "text": "I think I received an email meant for someone else. It has a name I do not recognise and refers to a workspace we do not use.",
+    "label": "other"
+  },
+  {
+    "id": "t090",
+    "text": "A feature suggestion: it would help enormously if the list view remembered the sort order between visits. Small thing, but we reset it fifty times a day.",
+    "label": "other"
+  },
+  {
+    "id": "t091",
+    "text": "Is there a user group or forum? We would like to compare notes with similar teams and could not find anything official.",
+    "label": "other"
+  },
+  {
+    "id": "t092",
+    "text": "Someone is using your name in a phishing email sent to our staff. I am forwarding the headers in case it is useful to your security team.",
+    "label": "other",
+    "note": "A phishing report: security shaped, but no fault in the product."
+  },
+  {
+    "id": "t093",
+    "text": "Do you sponsor community events? We run a monthly meetup for engineering leads and are looking for a venue partner for next year.",
+    "label": "other"
+  },
+  {
+    "id": "t094",
+    "text": "The font on the help centre is very light grey and hard to read for anyone with low vision. Please consider darkening it.",
+    "label": "other",
+    "note": "An accessibility complaint about the help centre, not the product itself."
+  },
+  {
+    "id": "t095",
+    "text": "I am a student researching workflow tools and would like to ask a few questions for my dissertation. Is there someone who handles that kind of request?",
+    "label": "other",
+    "note": "An external research request with no product angle at all."
+  },
+  {
+    "id": "t096",
+    "text": "Your survey link expired before I could finish it. I had written a long answer and lost the lot, which is a shame.",
+    "label": "other"
+  },
+  {
+    "id": "t097",
+    "text": "Please confirm you received the signed form we posted on the second. We have had no acknowledgement and the deadline is on Friday.",
+    "label": "other",
+    "note": "Vague and process shaped; no team owns it cleanly."
+  },
+  {
+    "id": "t098",
+    "text": "Can you tell me the name of the font used in your product interface? We are building internal tooling and would like it to sit alongside yours.",
+    "label": "other"
+  },
+  {
+    "id": "t099",
+    "text": "I clicked a link in your marketing email and landed on a page in German. I am in Ireland and would rather read it in English.",
+    "label": "other",
+    "note": "Looks like a defect, but it is a marketing content complaint."
+  },
+  {
+    "id": "t100",
+    "text": "Nothing is wrong. I simply wanted to say the recent changes to the editor have made my week considerably less irritating. Carry on.",
+    "label": "other"
+  }
+]

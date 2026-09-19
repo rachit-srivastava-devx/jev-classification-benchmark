@@ -13,11 +13,17 @@ measurably more accurate than it.** It routed 92% of tickets correctly at
 expensive model in the test, `grok-4.6`, cost {{dearest_ratio}} times as much and
 scored 93% — a one-point difference this test cannot tell apart from chance.
 
+Read the second half of that claim as the weak statement it is. Of the
+{{jev_comparisons}} comparisons Jev makes against other models,
+{{jev_ties}} are ties this sample cannot resolve and {{jev_better_than}} is a win.
+No model beat it — and the test was not powerful enough to show one if it had.
+
 Two caveats up front, both in section 5. A hundred tickets can only resolve
 accuracy differences of about {{resolution_pp}} points, so most of the ranking
 below is a cost ranking, not an accuracy ranking. And for {{unrecon_count}} of
-the models, what the provider billed differed from its published price by 10% to
-53%, which we could not explain from this run's data.
+the models, what the provider billed differed from its published price by
+{{divergence_lo}} to {{divergence_hi}}, which we could not explain from this
+run's data.
 
 ## 1 · What we tested
 
@@ -74,9 +80,12 @@ Three things the table says that are not close calls:
    `sonnet-5`, the best of the premium models at 96%, costs 29× and is five times
    slower.
 
-The one real accuracy signal is at the bottom: `mistral-small-low` at 79% is the
-only model this sample can call worse than the rest, and it also lost 16 of its
-100 calls to HTTP errors.
+The one real accuracy signal is at the bottom. Exactly {{separable_count}} of the
+{{measured_count}} models are measurably worse than any other: `mistral-small-low`
+at 79%, beaten by {{mistral_small_low_lost_to}} of the other {{other_count}}, and
+`mistral-small` at 86%, beaten by {{mistral_small_lost_to}}. `mistral-small-low`
+also lost 16 of its 100 calls to HTTP errors. Every other difference in the table
+is a tie.
 
 ## 4 · Cost against effectiveness
 
@@ -104,8 +113,8 @@ Five things that could change the conclusion, in the order they would matter:
    all in the same band" rather than as an order. Ten times the data would be
    needed to separate 92% from 96%.
 2. **{{unrecon_count}} of the models did not reconcile on cost.** What the
-   provider billed differed from its published per-token price by between 10% and
-   53%. We checked both obvious explanations — a missing cost field and a stale
+   provider billed differed from its published per-token price by between
+   {{divergence_lo}} and {{divergence_hi}}. We checked both obvious explanations — a missing cost field and a stale
    price table — against the live API, and neither holds: the field is always
    present, and all 20 prices match the provider's current list exactly. We could
    not establish the mechanism from this run's stored data, so it is named here
@@ -114,8 +123,12 @@ Five things that could change the conclusion, in the order they would matter:
 3. **One run, one day, one prompt.** No model was run twice, so none of this
    separates model behaviour from run-to-run variation. Latency in particular was
    measured from one machine over one network at one time of day.
-4. **`llama-4-scout` produced no result at all** — all 100 calls returned an HTTP
-   error, so it is absent from every table and from the chart. Four other models
+4. **`llama-4-scout` produced no result at all** — all 100 calls returned
+   `HTTP 404: No endpoints found`, with the provider's routing funnel showing all
+   three candidate endpoints dropped at the *filter by parameters* step. It is the
+   only model in the set that does not advertise `reasoning` support, and the
+   harness sends one request shape to every model. So this is a harness-model
+   mismatch, not a model failure, and it is absent from every table and the chart. Four other models
    lost calls too: `mistral-small-low` 16, `mistral-small` 4, and four models lost
    2–3 calls to unreadable output. Those losses count as wrong answers, which is
    the conservative choice but does penalise those models twice.
@@ -233,6 +246,18 @@ quantified in the next section, not hand-waved. Latency is 20 samples per model 
 is reported as P50 and P95 only; a mean would be dominated by the tail and a
 single slow call would move it.
 
+### What would make this test unfair to the other models
+
+Jev is the subject of this test and it wins it, so the ways that could have been
+arranged are worth naming. Every model, Jev included, saw the same
+{{dataset_n}} tickets in the same order, through the same OpenRouter key, scored
+by the same string comparison against the same hand-written labels, with failures
+counted as wrong for everyone. The one asymmetry is the prompt: Jev takes a typed
+schema where the chat models take an instruction, because that is what each
+endpoint accepts — section 2 prints both verbatim. No prompt tuning was done for
+any model, which is itself a bias: the chat models would likely gain a point or
+two from prompt work that Jev has no equivalent of.
+
 ## Appendix B · Which differences are real
 
 Accuracy differences are only meaningful if they survive the sample size. This
@@ -242,8 +267,9 @@ zero, **worse** entirely below, and **tie** means it contains zero and the two
 cannot be told apart at {{dataset_n}} tickets.
 
 Of {{pair_count}} pairs, {{resolved_pairs}} resolve and {{unresolved_pairs}} do
-not. Jev's row is all ties: no model in the test is distinguishable from it on
-accuracy in either direction.
+not. Jev's row is {{jev_better_than}} win, {{jev_worse_than}} losses and
+{{jev_ties}} ties: it is measurably more accurate than `mistral-small-low`, and
+indistinguishable from every other model in the test.
 
 {{DISTINGUISHABILITY_MATRIX}}
 

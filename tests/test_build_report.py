@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import build_report as br  # noqa: E402
 
+from jevdemo.decision import distinguishability_matrix  # noqa: E402
+
 RESULTS = {
     "arms": [
         {"arm": "jev", "model": "typesafe/jev-1.13", "kind": "jev", "reasoning": None,
@@ -465,3 +467,64 @@ def test_judge_table_publishes_the_denominator_it_scored_over():
 def test_judge_caption_says_model_not_arm():
     # A word-boundary match, not a substring one: "Spearman" contains "arm".
     assert not re.search(r"\barms?\b", br.judge_html(_judge_fixture()), re.I)
+
+
+def _real_results():
+    """The live measurements. These assertions are about the shipped document, so
+    a synthetic fixture would prove nothing about the numbers it prints."""
+    import json
+    import pathlib
+    p = pathlib.Path(__file__).resolve().parents[1] / "results.json"
+    if not p.exists():
+        import pytest
+        pytest.skip("results.json not present; run the experiment first")
+    return json.loads(p.read_text())
+
+
+def test_cost_divergence_range_is_computed_not_typed():
+    """The report quoted a hand-typed 10%-53% range. Both ends were wrong. The
+    range is now derived from the same fields that set `unrecon_count`."""
+    results = _real_results()
+    t = br.tokens(results, None)
+    unrecon = [a for a in results["arms"] if not a.get("cost_reconciled", True)]
+    div = sorted(
+        abs(a["computed_cost_micro"] - a["reported_cost_micro"]) / a["reported_cost_micro"]
+        for a in unrecon
+    )
+    assert t["divergence_lo"] == f"{div[0] * 100:.0f}%"
+    assert t["divergence_hi"] == f"{div[-1] * 100:.0f}%"
+    assert t["unrecon_count"] == str(len(unrecon))
+
+
+def test_jev_row_counts_come_from_the_matrix_that_is_printed():
+    """Appendix B claimed Jev's row was all ties while the matrix below it showed
+    a win. The claim is now the same computation as the matrix."""
+    results = _real_results()
+    t = br.tokens(results, None)
+    arms = br._measured(results)
+    row = distinguishability_matrix(arms)["jev"]
+    verdicts = [v["verdict"] for k, v in row.items() if k != "jev"]
+    assert t["jev_better_than"] == str(verdicts.count("better"))
+    assert t["jev_worse_than"] == str(verdicts.count("worse"))
+    assert t["jev_ties"] == str(verdicts.count("tie"))
+
+
+def test_each_model_carries_how_many_models_beat_it():
+    """Section 3 called one model 'the only model this sample can call worse than
+    the rest'. Two models are separable, not one."""
+    results = _real_results()
+    t = br.tokens(results, None)
+    arms = br._measured(results)
+    m = distinguishability_matrix(arms)
+    for a in arms:
+        slug = a["arm"].replace(".", "_").replace("-", "_")
+        beaten_by = sum(
+            1 for b in arms if b["arm"] != a["arm"]
+            and m[b["arm"]][a["arm"]]["verdict"] == "better"
+        )
+        assert t[f"{slug}_lost_to"] == str(beaten_by), a["arm"]
+    assert t["separable_count"] == str(
+        sum(1 for a in arms
+            if any(m[b["arm"]][a["arm"]]["verdict"] == "better"
+                   for b in arms if b["arm"] != a["arm"]))
+    )

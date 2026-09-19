@@ -63,9 +63,16 @@ def tokens(results: dict, judge: dict | None = None) -> dict[str, str]:
         else f"{dearest['cost_per_1000_micro'] / jev['cost_per_1000_micro']:,.0f}"
     )
     out["dearest_model"] = "\u2014" if dearest is None else dearest["arm"]
-    out["unrecon_count"] = str(
-        sum(1 for a in results["arms"] if not a.get("cost_reconciled", True))
+    # The divergence range is derived here rather than typed into the prose: an
+    # earlier draft carried a hand-written "10% to 53%" and both ends were wrong.
+    unrecon = [a for a in results["arms"] if not a.get("cost_reconciled", True)]
+    out["unrecon_count"] = str(len(unrecon))
+    div = sorted(
+        abs(a["computed_cost_micro"] - a["reported_cost_micro"]) / a["reported_cost_micro"]
+        for a in unrecon if a.get("reported_cost_micro")
     )
+    out["divergence_lo"] = "\u2014" if not div else f"{div[0] * 100:.0f}%"
+    out["divergence_hi"] = "\u2014" if not div else f"{div[-1] * 100:.0f}%"
     out.update(_stat_tokens(results))
     out.update(_judge_tokens(judge))
     for a in arms:
@@ -115,6 +122,36 @@ def _resolution_pp(results: dict) -> float:
     return 100.0
 
 
+def _verdict_tokens(arms: list[dict]) -> dict[str, str]:
+    """Counts read straight off the matrix the report prints.
+
+    Prose that asserts what the matrix shows has to be computed from the matrix,
+    or it drifts: an earlier draft said "Jev's row is all ties" three lines above
+    a matrix showing a win.
+    """
+    if not arms or len(arms) > 40:
+        return {}
+    m = distinguishability_matrix(arms)
+    out: dict[str, str] = {}
+    for a in arms:
+        slug = a["arm"].replace(".", "_").replace("-", "_")
+        out[f"{slug}_lost_to"] = str(sum(
+            1 for b in arms
+            if b["arm"] != a["arm"] and m[b["arm"]][a["arm"]]["verdict"] == "better"
+        ))
+    out["separable_count"] = str(sum(1 for a in arms if out[
+        a["arm"].replace(".", "_").replace("-", "_") + "_lost_to"] != "0"))
+    if "jev" in m:
+        row = [v["verdict"] for k, v in m["jev"].items() if k != "jev"]
+        out["jev_better_than"] = str(row.count("better"))
+        out["jev_worse_than"] = str(row.count("worse"))
+        out["jev_ties"] = str(row.count("tie"))
+        out["jev_comparisons"] = str(len(row))
+    out["measured_count"] = str(len(arms))
+    out["other_count"] = str(len(arms) - 1)
+    return out
+
+
 def _stat_tokens(results: dict) -> dict[str, str]:
     arms = _measured(results)
     n = _dataset_n(results)
@@ -140,6 +177,7 @@ def _stat_tokens(results: dict) -> dict[str, str]:
         "jev_price_out": f"{jev['price_out_micro_per_mtok'] / 1_000_000:.3f}",
         "jev_recon": "exact" if jev.get("cost_reconciled") else "not reconciled",
         "baseline_arm": baseline,
+        **_verdict_tokens(arms),
         "pair_count": str(len(pairs)),
         "resolved_pairs": str(resolved),
         "unresolved_pairs": str(len(pairs) - resolved),

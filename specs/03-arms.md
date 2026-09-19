@@ -6,6 +6,26 @@ Every arm is a row in one registry and two pure functions: build a request, pars
 Neither function touches the network, which is what lets all 20 arms be tested against
 captured fixtures with no key and no spend.
 
+
+## Rate limiting is not a failure mode
+
+Added after the first full run stopped on it. `openai/gpt-5.3-codex` caps new accounts at
+**20 requests per minute**, and the first run sent 8 concurrent bulk requests per arm, so the
+fifth arm returned 429s that the four-way failure taxonomy would have scored as
+`http_error` — putting the rate limiter in the accuracy column.
+
+The policy now:
+
+- **429 is the only retried status.** Up to 5 attempts with 2/4/8/16 s backoff
+  (`jevdemo/transport.Throttled`). It says our request rate was wrong, not that the model
+  was.
+- **Every other status is returned on the first attempt.** Retrying a 500 buys a second
+  charge for the same broken answer.
+- **Latency is the successful attempt's own wall time**, never the elapsed time across the
+  backoff — timing the retries would measure this script's patience.
+- **Bulk concurrency is 4, down from 8**, and the retry count is printed and written to
+  `results.json` so the reader can see how much pacing the run needed.
+
 ## The registry — `jevdemo/arms.py`
 
 ```python

@@ -134,3 +134,39 @@ class FixtureTransport:
             status, raw = scripted  # type: ignore[misc]
 
         return status, raw, self.wall_ms
+
+
+class Throttled:
+    """Retries a 429 and nothing else.
+
+    A 429 says our own request rate was too high; it is not evidence about the
+    model, so recording it as a failure would put the rate limiter in the
+    accuracy column. Every other status is returned untouched on the first
+    attempt — a 500 retried is a second charge for the same broken answer.
+
+    The latency returned is the successful attempt's own wall time, not the
+    elapsed time across the retries. Timing the backoff would measure this
+    script's patience.
+
+    Not thread-safe in its `retries` counter; it is a report figure, not a
+    control signal, and an occasional lost increment is acceptable there.
+    """
+
+    def __init__(self, inner: Transport, sleep=time.sleep, max_attempts: int = 5,
+                 base_delay_s: float = 2.0):
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be at least 1")
+        self._inner = inner
+        self._sleep = sleep
+        self.max_attempts = max_attempts
+        self.base_delay_s = base_delay_s
+        self.retries = 0
+
+    def __call__(self, url: str, body: dict, headers: dict) -> tuple[int, bytes, float]:
+        for attempt in range(self.max_attempts):
+            status, raw, wall_ms = self._inner(url, body, headers)
+            if status != 429 or attempt == self.max_attempts - 1:
+                return status, raw, wall_ms
+            self.retries += 1
+            self._sleep(self.base_delay_s * (2 ** attempt))
+        raise AssertionError("unreachable: the loop returns on its last attempt")

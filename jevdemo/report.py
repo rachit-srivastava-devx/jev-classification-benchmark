@@ -60,7 +60,7 @@ def print_table(results: dict[str, ArmMetrics]) -> None:
 
 
 def write_json(path: Path, results: dict[str, ArmMetrics], negotiated: dict,
-               records: list[Record]) -> None:
+               records: list[Record], rate_limit_retries: int = 0) -> None:
     payload = {
         "arms": rows(results),
         "reasoning_negotiation": {
@@ -71,6 +71,7 @@ def write_json(path: Path, results: dict[str, ArmMetrics], negotiated: dict,
             "records": len(records),
             "negotiation_calls": sum(o.calls for o in negotiated.values()),
             "computed_cost_micro": sum(m.computed_cost_micro for m in results.values()),
+            "rate_limit_retries": rate_limit_retries,
         },
     }
     Path(path).write_text(json.dumps(payload, indent=2) + "\n")

@@ -16,11 +16,13 @@ from pathlib import Path
 from jevdemo import chat_arm, dataset, jev_arm, negotiate
 from jevdemo.arms import ARMS, Arm
 from jevdemo.metrics import BULK_PASS, LATENCY_PASS, Record, aggregate
-from jevdemo.transport import HttpTransport, Transport, TransportError
+from jevdemo.transport import HttpTransport, Throttled, Transport, TransportError
 from jevdemo.result import failed
 
 LATENCY_N = 20
-WORKERS = 8
+# 4, not 8: openai/gpt-5.3-codex caps new accounts at 20 requests per minute,
+# and Throttled turns the remaining overshoot into backoff rather than failures.
+WORKERS = 4
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 
@@ -98,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         print("OPENROUTER_API_KEY is not set and .env does not define it", file=sys.stderr)
         return 2
 
-    transport = HttpTransport()
+    transport = Throttled(HttpTransport())
     headers = headers_for(key)
     records: list[Record] = []
     negotiated: dict[str, negotiate.Outcome] = {}
@@ -111,8 +113,10 @@ def main(argv: list[str] | None = None) -> int:
     from jevdemo import report
 
     results = aggregate(records, {a.name: a for a in arms})
-    report.write_json(Path(args.out), results, negotiated, records)
+    report.write_json(Path(args.out), results, negotiated, records,
+                      rate_limit_retries=transport.retries)
     report.print_table(results)
+    print(f"\n{transport.retries} call(s) were retried after a 429")
     return 0
 
 

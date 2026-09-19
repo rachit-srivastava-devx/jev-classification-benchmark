@@ -12,3 +12,7 @@ The files below were written by hand because the API will not produce them on de
 | `chat_no_usage.json` | a 200 with no `usage` block | Spec 06: must warn, not crash. |
 | `http_500.json` | a provider error body | Asserts no retry happens. |
 | `empty.bin` | zero bytes | A 200 with nothing in it. |
+
+`scripts/probe.py` writes a fresh body per arm into `tests/fixtures/captured/`, which is
+gitignored. That directory is a refresh workspace for diffing against a provider's current
+envelope; the files the tests assert against are the ones checked in beside this note.

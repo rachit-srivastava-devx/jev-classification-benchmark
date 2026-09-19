@@ -84,6 +84,11 @@ def write_json(path: Path, results: dict[str, ArmMetrics], negotiated: dict,
                 "input_tokens": r.prediction.input_tokens,
                 "output_tokens": r.prediction.output_tokens,
                 "reasoning_tokens": r.prediction.reasoning_tokens,
+                # Serialised per call so a divergence between the provider's bill
+                # and the list price can be localised to the calls that caused it.
+                # Only arm-level totals were stored for the first corrected run,
+                # which is why that run can name the divergence but not explain it.
+                "reported_cost_micro": r.prediction.reported_cost_micro,
                 "confidence": r.prediction.confidence,
                 "elapsed_ms": r.elapsed_ms,
             }

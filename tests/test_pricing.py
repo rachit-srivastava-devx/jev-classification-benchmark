@@ -2,6 +2,8 @@
 import pytest
 
 from jevdemo import arms, pricing
+from jevdemo.arms import by_name
+from jevdemo.pricing import compute_micro, reconcile
 
 JEV = arms.by_name("jev")
 OPUS = arms.by_name("opus-5")
@@ -67,3 +69,37 @@ def test_micro_to_usd_string_is_stable_at_four_decimals():
     assert pricing.usd(17_000) == "0.0170"
     assert pricing.usd(0) == "0.0000"
     assert pricing.usd(441_200) == "0.4412"
+
+
+# --- tolerance scales with the number of calls ------------------------------
+# A provider rounds each call it bills. Over a 120-call arm that drift compounds,
+# so an absolute two-micro-dollar tolerance flagged four arms whose totals agreed
+# to within four parts in ten thousand. The tolerance is per call, not per total.
+
+
+def test_tolerance_absorbs_per_call_rounding_across_many_calls():
+    arm = by_name("sonnet-5")
+    computed = compute_micro(arm, 20_000, 1_300)
+    # 15 micro-USD adrift over 120 calls is an eighth of a micro-dollar per call.
+    r = reconcile(arm, 20_000, 1_300, (computed + 15) / 1_000_000, calls=120)
+    assert r.ok
+
+
+def test_tolerance_still_catches_a_real_billing_difference():
+    arm = by_name("sonnet-5")
+    computed = compute_micro(arm, 20_000, 1_300)
+    r = reconcile(arm, 20_000, 1_300, computed * 1.2 / 1_000_000, calls=120)
+    assert not r.ok
+
+
+def test_a_single_call_keeps_the_tight_tolerance():
+    arm = by_name("sonnet-5")
+    computed = compute_micro(arm, 200, 13)
+    assert reconcile(arm, 200, 13, (computed + 2) / 1_000_000, calls=1).ok
+    assert not reconcile(arm, 200, 13, (computed + 40) / 1_000_000, calls=1).ok
+
+
+def test_calls_must_be_positive():
+    arm = by_name("sonnet-5")
+    with pytest.raises(ValueError):
+        reconcile(arm, 200, 13, 0.0002, calls=0)

@@ -108,3 +108,12 @@ def test_latency_pass_records_are_persisted_and_marked(tmp_path):
 def test_accuracy_is_none_and_interval_is_the_unit_interval_on_an_empty_arm():
     results = aggregate([], BY_NAME)
     assert results == {}
+
+
+def test_each_record_carries_the_provider_cost(tmp_path):
+    """A run-level cost divergence is only localisable if each call kept its bill."""
+    records = _records()
+    out = tmp_path / "r.json"
+    write_json(out, aggregate(records, BY_NAME), {}, records)
+    payload = json.loads(out.read_text())
+    assert "reported_cost_micro" in payload["records"][0]

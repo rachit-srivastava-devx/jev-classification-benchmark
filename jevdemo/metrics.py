@@ -31,7 +31,6 @@ class ArmMetrics:
     input_tokens: int = 0
     output_tokens: int = 0
     reasoning_tokens: int = 0
-    computed_cost_micro: int = 0
     reported_cost_micro: int = 0
     reported_cost_complete: bool = True
     latencies: list[float] = field(default_factory=list)
@@ -51,6 +50,17 @@ class ArmMetrics:
     @property
     def reasoning(self) -> dict | None:
         return self.spec.reasoning
+
+    @property
+    def computed_cost_micro(self) -> int:
+        """Cost priced once from the accumulated token totals.
+
+        Never a sum of per-call costs. A call can cost less than one micro-dollar,
+        so rounding each one to a whole micro-dollar and adding them up inflates
+        any cheap arm — about ten percent at 4.5 micro-USD a call — and leaves the
+        published figure disagreeing with the reconciliation, which prices totals.
+        """
+        return compute_micro(self.spec, self.input_tokens, self.output_tokens)
 
     @property
     def attempted(self) -> int:
@@ -95,7 +105,8 @@ class ArmMetrics:
         reported = (
             self.reported_cost_micro / 1_000_000 if self.reported_cost_complete else None
         )
-        return reconcile(self.spec, self.input_tokens, self.output_tokens, reported)
+        return reconcile(self.spec, self.input_tokens, self.output_tokens, reported,
+                         calls=max(self.attempted, 1))
 
 
 def _percentile(values: list[float], q: float) -> float | None:
@@ -133,7 +144,6 @@ def aggregate(records: list[Record], arms: dict[str, Arm]) -> dict[str, ArmMetri
         m.input_tokens += p.input_tokens
         m.output_tokens += p.output_tokens
         m.reasoning_tokens += p.reasoning_tokens
-        m.computed_cost_micro += compute_micro(arm, p.input_tokens, p.output_tokens)
         if p.reported_cost_micro is None:
             m.reported_cost_complete = False
         else:

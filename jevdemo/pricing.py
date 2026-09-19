@@ -15,6 +15,13 @@ from .arms import Arm
 
 #: Rounding alone can put the provider's figure one micro-dollar either side of
 #: ours; two absorbs that without hiding a real billing difference.
+#:
+#: It is a tolerance PER CALL. An arm's total is the sum of calls the provider
+#: rounded individually, so over 120 calls that drift compounds; an absolute two
+#: micro-dollars flagged four arms whose totals agreed to four parts in ten
+#: thousand. Multiplying by the call count keeps the bound tight on one call and
+#: honest on a run: a genuine billing difference is tens of percent, not tens of
+#: micro-dollars.
 TOLERANCE_MICRO = 2
 
 
@@ -62,6 +69,7 @@ def reconcile(
     input_tokens: int,
     output_tokens: int,
     reported_cost: float | None,
+    calls: int = 1,
 ) -> Reconciliation:
     """Check the provider's cost against one computed from the registry.
 
@@ -75,11 +83,20 @@ def reconcile(
         output_tokens: Completion tokens billed.
         reported_cost: The provider's own figure in US dollars, or None when the
             response carried no `usage` block.
+        calls: How many separately-billed calls the figures cover. The tolerance
+            scales with it, because the provider rounded each one.
 
     Returns:
         The comparison. `ok` is False for a missing figure as well as a mismatched
         one — an absent cost is unverified, not free.
+
+    Raises:
+        ValueError: `calls` is not positive. A tolerance over zero calls would
+            make every comparison pass, which is a gate that measures nothing.
     """
+    if calls <= 0:
+        raise ValueError(f"cannot reconcile over calls={calls}")
+    tolerance = TOLERANCE_MICRO * calls
     computed = compute_micro(arm, input_tokens, output_tokens)
 
     if reported_cost is None:
@@ -94,7 +111,7 @@ def reconcile(
 
     reported = round(reported_cost * 1_000_000)
     delta = abs(reported - computed)
-    ok = delta <= TOLERANCE_MICRO
+    ok = delta <= tolerance
     return Reconciliation(
         arm=arm.name,
         computed_micro=computed,
@@ -105,7 +122,7 @@ def reconcile(
             f"{arm.name}: reconciled ({computed} micro-USD)"
             if ok
             else f"{arm.name}: provider billed {reported} micro-USD, registry computes "
-            f"{computed}, delta {delta} exceeds tolerance {TOLERANCE_MICRO}"
+            f"{computed}, delta {delta} exceeds tolerance {tolerance}"
         ),
     )
 

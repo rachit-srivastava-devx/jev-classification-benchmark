@@ -1,6 +1,6 @@
 from jevdemo import metrics
-from jevdemo.arms import ARMS, by_name
-from jevdemo.metrics import BULK_PASS, LATENCY_PASS, Record, aggregate
+from jevdemo.arms import ARMS, Arm, by_name
+from jevdemo.metrics import BULK_PASS, LATENCY_PASS, ArmMetrics, Record, aggregate
 from jevdemo.result import Prediction, failed
 
 ARM_MAP = {a.name: a for a in ARMS}
@@ -117,3 +117,35 @@ def test_failures_still_count_against_an_arm_that_did_answer():
     assert m.measured is True
     assert m.attempted == 100
     assert m.accuracy == 0.73
+
+
+# --- money is priced once, never per call -----------------------------------
+# Rounding each call to a whole micro-dollar and summing inflates any arm whose
+# per-call cost sits near a half. At ~4.5 micro-USD a call, half-up rounding
+# overstated the published cost per 1,000 by about ten percent, and it made the
+# reconciliation compare two different quantities.
+
+
+def _arm_with_price(in_price: int, out_price: int):
+    return Arm(name="t", model="m", kind="chat", reasoning=None,
+               price_in_micro_per_mtok=in_price, price_out_micro_per_mtok=out_price)
+
+
+def test_cost_is_priced_from_totals_not_summed_per_call():
+    # 4.5 micro-USD a call: per-call half-up would give 5 each, 10 in total.
+    arm = _arm_with_price(in_price=4_500_000, out_price=0)
+    m = ArmMetrics(spec=arm)
+    for _ in range(2):
+        m.scored += 1
+        m.correct += 1
+        m.input_tokens += 1
+    assert m.computed_cost_micro == 9
+
+
+def test_priced_once_matches_the_reconciliation_computation():
+    arm = _arm_with_price(in_price=4_500_000, out_price=1_000_000)
+    m = ArmMetrics(spec=arm)
+    m.scored, m.correct = 3, 3
+    m.input_tokens, m.output_tokens = 7, 5
+    m.reported_cost_micro = m.computed_cost_micro
+    assert m.reconciliation().ok

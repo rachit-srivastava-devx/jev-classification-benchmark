@@ -149,3 +149,52 @@ table.matrix .idx {
   color: var(--muted-2);
   margin-right: 4px;
 }
+
+/* --- print / PDF ------------------------------------------------------------
+   The PDF is the artifact that gets read, so it is designed rather than exported.
+   A4 with a generous measure; the screen's 48px body padding becomes page margin. */
+
+@page {
+  size: A4;
+  margin: 20mm 16mm 18mm;
+}
+
+@media print {
+  body { padding: 0; font-size: 10.5pt; }
+  main { max-width: none; }
+
+  h1 { font-size: 30pt; }
+  /* No forced page break per section: with eleven sections it leaves half-empty
+     pages that read as broken rather than deliberate. Headings simply never
+     strand at the foot of a page. */
+  h2 { font-size: 16pt; margin-top: 0; padding-top: 18pt; break-after: avoid; }
+  h3 { break-after: avoid; }
+  p, blockquote, li { orphans: 3; widows: 3; }
+
+  /* A table split across a page boundary loses its head, and a headless table of
+     numbers is unreadable. Keep each one whole where it fits on a page. */
+  table { break-inside: avoid; font-size: 8pt; }
+  table.matrix { font-size: 7pt; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+
+  pre, blockquote { break-inside: avoid; }
+}
+
+/* Formula blocks. Monospace, hairline left rule, never a filled box. */
+pre {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  background: none;
+  border-left: 1px solid var(--rule);
+  margin: 20px 0;
+  padding: 2px 0 2px 16px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+@media print {
+  pre { font-size: 8.5pt; break-inside: avoid; }
+}

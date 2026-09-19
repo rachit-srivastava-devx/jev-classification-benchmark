@@ -184,3 +184,95 @@ def test_an_unmeasured_arm_is_kept_out_of_the_break_even_baseline():
 
 def test_an_unmeasured_arm_cannot_be_the_best_arm():
     assert br.tokens(UNMEASURED)["best_arm"] == "dear"
+
+
+# --- indented code blocks --------------------------------------------------
+#
+# The proofs are the centrepiece of this document and they are written as
+# indented formula blocks. Rendering them as ordinary paragraphs reflows the
+# algebra into prose, which is worse than not showing it.
+
+
+def test_an_indented_block_renders_as_preformatted_text():
+    out = br.markdown("Then:\n\n    C = (p_in * T_in) / 10^6\n\nTherefore.")
+    assert "<pre>" in out
+    assert "C = (p_in * T_in) / 10^6" in out
+
+
+def test_a_multi_line_formula_keeps_its_line_breaks():
+    out = br.markdown("    a = 1\n    b = 2\n")
+    assert out.count("\n") >= 1
+    assert "a = 1" in out and "b = 2" in out
+    assert out.count("<pre>") == 1
+
+
+def test_a_list_item_is_not_mistaken_for_an_indented_block():
+    out = br.markdown("- first\n- second\n")
+    assert "<pre>" not in out
+    assert "<ul>" in out
+
+
+def test_code_inside_a_block_is_escaped_not_interpreted():
+    out = br.markdown("    <script>alert(1)</script>\n")
+    assert "<script>" not in out
+    assert "&lt;script&gt;" in out
+
+
+# --- wrapped list items -----------------------------------------------------
+# A numbered item that wraps onto a second line is one item. Before this, the
+# loop stopped at the first continuation line and the remaining items reflowed
+# into a paragraph, silently deleting the numbering from the corollaries.
+
+
+def test_wrapped_list_item_stays_one_item():
+    html_out = br.markdown(
+        "1. first item that\n   wraps onto a second line\n2. second item\n"
+    )
+    assert html_out.count("<li>") == 2
+    assert "first item that wraps onto a second line" in html_out
+
+
+def test_wrapped_list_does_not_leak_into_a_paragraph():
+    html_out = br.markdown(
+        "1. alpha\n   continued\n2. beta\n\nAfterwards prose.\n"
+    )
+    assert "<p>Afterwards prose.</p>" in html_out
+    assert "<p>alpha" not in html_out
+
+
+def test_bullet_list_wraps_too():
+    html_out = br.markdown("- one\n  more of one\n- two\n")
+    assert html_out.count("<li>") == 2
+    assert "one more of one" in html_out
+
+
+def test_list_stops_at_a_blank_line():
+    html_out = br.markdown("- one\n\n- two\n")
+    assert html_out.count("<ul>") == 2
+
+
+# --- code spans are literal -------------------------------------------------
+# `K*` is a real symbol in the proofs. Its asterisk once opened an emphasis run
+# that swallowed a sentence and a half of the corollaries into blue italic.
+
+
+def test_asterisk_inside_a_code_span_is_not_emphasis():
+    out = br.inline("`K*` scales with cost and inversely with `K*` again")
+    assert "<em>" not in out
+    assert out.count("<code>K*</code>") == 2
+
+
+def test_emphasis_outside_code_spans_still_works():
+    out = br.inline("the arm is *dominated* here")
+    assert "<em>dominated</em>" in out
+
+
+def test_bold_outside_code_spans_still_works():
+    out = br.inline("**Claim.** something")
+    assert "<strong>Claim.</strong>" in out
+
+
+def test_code_span_content_is_escaped_not_marked_up():
+    out = br.inline("`a < b` and `**x**`")
+    assert "&lt;" in out
+    assert "<strong>" not in out

@@ -2,8 +2,6 @@ EYEBROW DevX Labs · Research note · 2026-09-20
 
 # What a typed decision model costs, and when it is the right purchase
 
-EYEBROW Abstract
-
 ## Abstract
 
 {{ABSTRACT}}

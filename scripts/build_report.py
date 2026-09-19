@@ -162,11 +162,24 @@ def substitute(text: str, table: dict[str, str]) -> str:
 
 
 def inline(text: str) -> str:
+    # Code spans are pulled out before emphasis runs. `K*` is a real symbol in the
+    # proofs, and leaving its asterisk in the stream opened an emphasis run that
+    # swallowed a sentence and a half of the corollaries into accent italic.
     text = html.escape(text)
-    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    spans: list[str] = []
+
+    def stash(match: re.Match) -> str:
+        spans.append(match.group(1))
+        return "\x00%d\x00" % (len(spans) - 1)
+
+    text = re.sub(r"`([^`]+)`", stash, text)
     text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
     text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", text)
-    return text
+    return re.sub(r"\x00(\d+)\x00",
+                  lambda m: "<code>%s</code>" % spans[int(m.group(1))], text)
+
+
+LIST_MARKER = re.compile(r"^(?:-|\d+\.)\s")
 
 
 def markdown(src: str) -> str:
@@ -196,18 +209,40 @@ def markdown(src: str) -> str:
                 block.append(lines[i][2:])
                 i += 1
             out.append(f'<blockquote>{inline(" ".join(block))}</blockquote>')
-        elif line.lstrip().startswith(("- ", "1. ")):
-            tag = "ul" if line.lstrip().startswith("- ") else "ol"
-            items = []
-            while i < len(lines) and lines[i].lstrip().startswith(("- ", "1. ", "2. ", "3. ",
-                                                                   "4. ", "5. ")):
-                items.append(f"<li>{inline(lines[i].lstrip()[2:].lstrip())}</li>")
+        elif line.startswith("    ") and line.strip():
+            # An indented block is a formula, not prose. Escaped, never inlined:
+            # the algebra must survive verbatim and nothing in it is markup.
+            block = []
+            while i < len(lines) and (lines[i].startswith("    ") or not lines[i].strip()):
+                if lines[i].strip():
+                    block.append(lines[i][4:])
+                elif block:
+                    block.append("")
                 i += 1
-            out.append(f"<{tag}>{''.join(items)}</{tag}>")
+            while block and not block[-1]:
+                block.pop()
+            out.append("<pre>" + html.escape("\n".join(block)) + "</pre>")
+        elif LIST_MARKER.match(line.lstrip()):
+            tag = "ul" if line.lstrip().startswith("- ") else "ol"
+            items: list[list[str]] = []
+            while i < len(lines) and lines[i].strip():
+                stripped = lines[i].lstrip()
+                if LIST_MARKER.match(stripped):
+                    items.append([stripped.split(" ", 1)[1].strip()])
+                elif items:
+                    # A wrapped line belongs to the item above it. Without this the
+                    # loop stopped at the first continuation and every later item
+                    # reflowed into a paragraph, deleting the numbering.
+                    items[-1].append(stripped)
+                else:
+                    break
+                i += 1
+            body = "".join(f"<li>{inline(' '.join(it))}</li>" for it in items)
+            out.append(f"<{tag}>{body}</{tag}>")
         else:
             para = []
             while i < len(lines) and lines[i].strip() and not lines[i].startswith(
-                    ("#", "- ", "> ", "EYEBROW ")):
+                    ("#", "- ", "> ", "EYEBROW ", "    ")):
                 para.append(lines[i])
                 i += 1
             out.append(f'<p>{inline(" ".join(para))}</p>')

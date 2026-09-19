@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from jevdemo.metrics import ArmMetrics, Record
+from jevdemo.stats import wilson_interval
 from jevdemo.pricing import usd
 
 
@@ -33,6 +34,9 @@ def rows(results: dict[str, ArmMetrics]) -> list[dict]:
             "computed_cost_micro": m.computed_cost_micro,
             "reported_cost_micro": m.reported_cost_micro if m.reported_cost_complete else None,
             "cost_reconciled": rec.ok,
+            "accuracy_ci95": list(wilson_interval(m.correct, m.attempted)),
+            "price_in_micro_per_mtok": m.spec.price_in_micro_per_mtok,
+            "price_out_micro_per_mtok": m.spec.price_out_micro_per_mtok,
             "cost_per_1000_micro": m.cost_per_1000_micro,
             "p50_latency_ms": m.p50_latency_ms,
             "p95_latency_ms": m.p95_latency_ms,
@@ -67,6 +71,23 @@ def write_json(path: Path, results: dict[str, ArmMetrics], negotiated: dict,
             name: {"reasoning": o.reasoning, "calls": o.calls, "error": o.error}
             for name, o in negotiated.items()
         },
+        "records": [
+            {
+                "arm": r.arm,
+                "ticket_id": r.ticket_id,
+                "pass": r.pass_name,
+                "gold": r.gold,
+                "predicted": r.prediction.label,
+                "failure": r.prediction.failure,
+                "detail": r.prediction.detail,
+                "input_tokens": r.prediction.input_tokens,
+                "output_tokens": r.prediction.output_tokens,
+                "reasoning_tokens": r.prediction.reasoning_tokens,
+                "confidence": r.prediction.confidence,
+                "elapsed_ms": r.elapsed_ms,
+            }
+            for r in records
+        ],
         "totals": {
             "records": len(records),
             "negotiation_calls": sum(o.calls for o in negotiated.values()),

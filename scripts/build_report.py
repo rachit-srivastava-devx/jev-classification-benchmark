@@ -53,6 +53,8 @@ def tokens(results: dict) -> dict[str, str]:
 def substitute(text: str, table: dict[str, str]) -> str:
     def swap(match: re.Match) -> str:
         key = match.group(1)
+        if key == "RESULTS_TABLE":
+            return match.group(0)
         if key not in table:
             raise KeyError(f"findings.md references unknown token {{{{{key}}}}}")
         return table[key]
@@ -150,10 +152,11 @@ def main() -> int:
 
     results = json.loads(Path(args.results).read_text())
     src = substitute(Path(args.findings).read_text(), tokens(results))
-    src = src.replace("{{RESULTS_TABLE}}", results_table(results))
-    body = markdown(src) if "{{RESULTS_TABLE}}" not in src else src
-    # The table marker survives markdown() because it sits on its own line as a paragraph.
-    body = body.replace("<p>{{RESULTS_TABLE}}</p>", results_table(results))
+    # The marker survives markdown() as its own paragraph, then swaps for the table. Doing it
+    # after the render keeps the table's markup out of the inline escaper.
+    body = markdown(src).replace("<p>{{RESULTS_TABLE}}</p>", results_table(results))
+    if "{{RESULTS_TABLE}}" in body:
+        raise ValueError("{{RESULTS_TABLE}} must sit alone on its own line")
 
     css = (ROOT / "assets" / "doctrine.css").read_text()
     extra = (ROOT / "assets" / "report.css").read_text()

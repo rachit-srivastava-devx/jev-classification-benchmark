@@ -5,3 +5,4 @@ __pycache__/
 results.json
 report.html
 tests/fixtures/captured/
+smoke.html

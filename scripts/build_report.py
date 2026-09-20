@@ -204,10 +204,18 @@ def _judge_tokens(judge: dict | None) -> dict[str, str]:
     }
 
 
-def substitute(text: str, table: dict[str, str]) -> str:
+def substitute(text: str, table: dict[str, str], blocks=None) -> str:
+    """Swap every {{token}} for its value; leave block tokens for the caller.
+
+    `blocks` names the uppercase block tokens this document uses, so a second
+    report with a different set of tables can share this function instead of
+    growing its own copy. Defaults to this report's own blocks.
+    """
+    names = BLOCKS if blocks is None else blocks
+
     def swap(match: re.Match) -> str:
         key = match.group(1)
-        if key in BLOCKS:
+        if key in names:
             return match.group(0)
         if key not in table:
             raise KeyError(f"findings.md references unknown token {{{{{key}}}}}")

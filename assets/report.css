@@ -176,9 +176,13 @@ table.matrix .idx {
      are allowed to break: forbidding it on a twenty-row table strands the heading
      alone at the foot of an otherwise empty page, which reads as broken. */
   table { break-inside: auto; font-size: 8pt; }
-  table.categories, table.examples, table.failures, table.judge {
+  table.categories, table.examples, table.failures, table.judge,
+  table.headline, table.bysource, table.breakeven, table.full {
     break-inside: avoid;
   }
+  /* The reranking report's widest table: thirteen numeric columns only fit at
+     this size, and it is an appendix lookup rather than something read across. */
+  table.full { font-size: 6.6pt; }
   table.matrix { font-size: 7pt; }
   thead { display: table-header-group; }
   tr { break-inside: avoid; }
@@ -204,7 +208,11 @@ pre {
   pre { font-size: 8.5pt; break-inside: avoid; }
 }
 
-/* --- cost vs effectiveness chart -------------------------------------------
+/* NOTE: the svg.chart fills below are literal hex, not var(). WeasyPrint
+   does not resolve custom properties inside SVG paint properties, so the
+   PDF — the artifact people actually read — lost every colour in the
+   chart. Values are identical to the doctrine tokens they replace.
+   --- cost vs effectiveness chart -------------------------------------------
    Hairlines and one accent. No fills, no legend box: the labels sit against the
    points they name, joined by a leader rather than a colour key. */
 
@@ -212,29 +220,30 @@ svg.chart { width: 100%; height: auto; display: block; margin: 24px 0 32px; }
 svg.chart .grid   { stroke: var(--rule-2); stroke-width: 1; }
 svg.chart .axis   { stroke: var(--ink); stroke-width: 1; }
 svg.chart .leader { stroke: var(--rule); stroke-width: 1; }
-svg.chart .pt     { fill: var(--muted); }
-svg.chart .pt.jev { fill: var(--accent); }
+svg.chart .pt     { fill: #5C6066; }
+svg.chart .pt.jev { fill: #1E6FFF; }
 svg.chart .ax {
   font-family: var(--f-mono);
   font-size: 10px;
-  fill: var(--muted-2);
+  fill: #8A8F96;
 }
 svg.chart .ax-title {
   font-family: var(--f-mono);
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  fill: var(--muted);
+  fill: #5C6066;
 }
 svg.chart .pt-label {
   font-family: var(--f-mono);
   font-size: 10px;
-  fill: var(--ink-2);
+  fill: #1A1A1A;
 }
-svg.chart .pt-label.jev { fill: var(--accent); font-weight: 500; }
+svg.chart .pt-label.jev { fill: #1E6FFF; font-weight: 500; }
 
 @media print {
   svg.chart { break-inside: avoid; }
 }
 
 table.headline td:nth-child(4) { font-weight: 500; }
+table.headline tr.unresolved td { color: var(--muted); }

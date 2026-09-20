@@ -1,0 +1,10 @@
+depth 20 · 101 queries · 3 models · cap $0.90
+[1/3] jev
+      recall@5  17.9%   101/101 ok  spend $0.018
+[2/3] glm-5.3-flash-low
+      reasoning={'effort': 'minimal'}
+      recall@5  18.0%   99/101 ok  spend $0.078
+[3/3] sonnet-5
+      recall@5   7.1%   37/101 ok  spend $0.578
+
+404 rows -> /Users/rachitsrivastava/Developer/devx/jev-demo/data/rag/results-d20.json  ·  spend $0.578

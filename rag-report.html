@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Picking the right chunks: Jev against chat models</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>/* DevX Doctrine — CSS custom properties and base styles.
+   Source: "The DevX Doctrine" v1.0, April 2026. See references/visual-doctrine.md for the
+   full token table, pattern library, and "never do" list — this file is the drop-in subset.
+
+   Google Fonts import (add as a <link> in <head>; this is HTML, not CSS, so it can't live here):
+   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;1,8..60,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+*/
+
+:root {
+  --ink:         #0A0A0A;
+  --ink-2:       #1A1A1A;
+  --muted:       #5C6066;
+  --muted-2:     #8A8F96;
+  --rule:        #E5E5E5;
+  --rule-2:      #F0F0F0;
+  --paper:       #FFFFFF;
+  --paper-2:     #FAFAF8;
+  --paper-3:     #F4F4F1;
+
+  --accent:      #1E6FFF;
+  --accent-soft: #E8F0FF;
+  --warn:        #C0392B;
+  --ok:          #0A7C53;
+
+  --f-display:   'Inter Tight', -apple-system, BlinkMacSystemFont, sans-serif;
+  --f-serif:     'Source Serif 4', Georgia, serif;
+  --f-mono:      'JetBrains Mono', 'SFMono-Regular', monospace;
+}
+
+body {
+  font-family: var(--f-display);
+  color: var(--ink);
+  background: var(--paper);
+  font-feature-settings: "ss01", "cv11", "tnum";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The one approved shadow in the system — a document/slide floating on a paper-3 canvas.
+   Do not add any other box-shadow (no card, button, or hover shadows). */
+.doctrine-page-shadow {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .04), 0 30px 60px -30px rgba(0, 0, 0, .18);
+}
+
+/* Hairline dividers — the default way to separate content instead of boxes/cards. */
+.doctrine-rule        { border: none; border-top: 1px solid var(--rule); }
+.doctrine-rule-subtle  { border: none; border-top: 1px solid var(--rule-2); }
+.doctrine-rule-heavy   { border: none; border-top: 1px solid var(--ink); }
+.doctrine-rule-accent  { border: none; border-top: 2px solid var(--accent); width: 72px; }
+
+/* Monospace eyebrow label, above a section title. */
+.doctrine-eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Italic accent emphasis for a word or two inside a headline. */
+.doctrine-emphasis {
+  font-family: var(--f-serif);
+  font-style: italic;
+  color: var(--accent);
+}
+
+/* Bordered container — sharp corners, no shadow. Use instead of a rounded, shadowed card. */
+.doctrine-container {
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  background: var(--paper);
+}
+
+/* Document surface (internal report): doctrine tokens applied, chrome stripped.
+   Max width 960px because this document carries tables. Spacing scale only. */
+
+* { box-sizing: border-box; }
+
+body { margin: 0; padding: 48px 24px 96px; }
+
+main { max-width: 960px; margin: 0 auto; }
+
+h1 {
+  font-family: var(--f-display);
+  font-weight: 500;
+  font-size: 48px;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  margin: 8px 0 24px;
+}
+
+h2 {
+  font-family: var(--f-display);
+  font-weight: 500;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+  margin: 64px 0 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--ink);
+}
+
+h3 {
+  font-family: var(--f-display);
+  font-weight: 500;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  margin: 32px 0 8px;
+}
+
+.accent-rule {
+  border-top: 2px solid var(--accent);
+  width: 72px;
+  margin: 12px 0 24px;
+}
+
+p, li {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 76ch;
+}
+
+p { margin: 0 0 16px; }
+
+ul, ol { margin: 0 0 16px; padding-left: 24px; }
+li { margin-bottom: 8px; }
+
+.eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+em {
+  font-family: var(--f-serif);
+  font-style: italic;
+  color: var(--accent);
+  font-size: 1.06em;
+}
+
+strong { font-weight: 600; color: var(--ink); }
+
+code {
+  font-family: var(--f-mono);
+  font-size: 0.88em;
+  background: var(--paper-3);
+  padding: 1px 4px;
+}
+
+blockquote {
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-size: 24px;
+  line-height: 1.18;
+  color: var(--ink);
+  border-left: 2px solid var(--accent);
+  margin: 32px 0;
+  padding: 0 0 0 24px;
+  max-width: 60ch;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 24px 0 32px;
+  font-size: 13px;
+}
+
+th {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 400;
+  text-align: left;
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--ink);
+}
+
+td {
+  padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--rule-2);
+  color: var(--ink-2);
+  vertical-align: baseline;
+}
+
+th.n, td.n { text-align: right; font-variant-numeric: tabular-nums; }
+td.n { font-family: var(--f-display); }
+.sub { color: var(--muted); font-family: var(--f-mono); font-size: 11px; }
+
+table code { background: none; padding: 0; }
+
+/* --- decision tables -------------------------------------------------------
+   Hairlines and weight only. The matrix is a lookup, so its signal is carried by
+   ink colour, never by fill, border or badge. */
+
+table.breakeven tr.unresolved td { color: var(--muted); }
+table.breakeven td:nth-child(4) { font-weight: 500; }
+
+table.matrix { font-size: 12px; }
+table.matrix th.rot {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  padding-right: 6px;
+}
+table.matrix td { padding: 4px 6px 4px 0; }
+table.matrix td.v-better { color: var(--ok); font-weight: 500; }
+table.matrix td.v-worse  { color: var(--warn); }
+table.matrix td.v-tie    { color: var(--muted-2); }
+table.matrix td.v-self   { color: var(--rule); }
+
+table.judge td:nth-child(3) { font-weight: 500; }
+table.matrix th.rot { font-size: 10px; letter-spacing: 0; padding-right: 4px; }
+table.matrix .idx {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--muted-2);
+  margin-right: 4px;
+}
+
+/* --- print / PDF ------------------------------------------------------------
+   The PDF is the artifact that gets read, so it is designed rather than exported.
+   A4 with a generous measure; the screen's 48px body padding becomes page margin. */
+
+@page {
+  size: A4;
+  margin: 20mm 16mm 18mm;
+}
+
+@media print {
+  body { padding: 0; font-size: 10.5pt; }
+  main { max-width: none; }
+
+  h1 { font-size: 30pt; }
+  /* No forced page break per section: with eleven sections it leaves half-empty
+     pages that read as broken rather than deliberate. Headings simply never
+     strand at the foot of a page. */
+  h2 { font-size: 16pt; margin-top: 0; padding-top: 18pt; break-after: avoid; }
+  h3 { break-after: avoid; }
+  p, blockquote, li { orphans: 3; widows: 3; }
+
+  /* A table split across a page boundary loses its head, and a headless table of
+     numbers is unreadable — so the head repeats and rows never split. Long tables
+     are allowed to break: forbidding it on a twenty-row table strands the heading
+     alone at the foot of an otherwise empty page, which reads as broken. */
+  table { break-inside: auto; font-size: 8pt; }
+  table.categories, table.examples, table.failures, table.judge,
+  table.headline, table.bysource, table.breakeven, table.full {
+    break-inside: avoid;
+  }
+  /* The reranking report's widest table: thirteen numeric columns only fit at
+     this size, and it is an appendix lookup rather than something read across. */
+  table.full { font-size: 6.6pt; }
+  table.matrix { font-size: 7pt; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+
+  pre, blockquote { break-inside: avoid; }
+}
+
+/* Formula blocks. Monospace, hairline left rule, never a filled box. */
+pre {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  background: none;
+  border-left: 1px solid var(--rule);
+  margin: 20px 0;
+  padding: 2px 0 2px 16px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+@media print {
+  pre { font-size: 8.5pt; break-inside: avoid; }
+}
+
+/* NOTE: the svg.chart fills below are literal hex, not var(). WeasyPrint
+   does not resolve custom properties inside SVG paint properties, so the
+   PDF — the artifact people actually read — lost every colour in the
+   chart. Values are identical to the doctrine tokens they replace.
+   --- cost vs effectiveness chart -------------------------------------------
+   Hairlines and one accent. No fills, no legend box: the labels sit against the
+   points they name, joined by a leader rather than a colour key. */
+
+svg.chart { width: 100%; height: auto; display: block; margin: 24px 0 32px; }
+svg.chart .grid   { stroke: var(--rule-2); stroke-width: 1; }
+svg.chart .axis   { stroke: var(--ink); stroke-width: 1; }
+svg.chart .leader { stroke: var(--rule); stroke-width: 1; }
+svg.chart .pt     { fill: #5C6066; }
+svg.chart .pt.jev { fill: #1E6FFF; }
+svg.chart .ax {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  fill: #8A8F96;
+}
+svg.chart .ax-title {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  fill: #5C6066;
+}
+svg.chart .pt-label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  fill: #1A1A1A;
+}
+svg.chart .pt-label.jev { fill: #1E6FFF; font-weight: 500; }
+
+@media print {
+  svg.chart { break-inside: avoid; }
+}
+
+table.headline td:nth-child(4) { font-weight: 500; }
+table.headline tr.unresolved td { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<p class="eyebrow">DevX Labs · Internal · 101 questions · 505 model calls</p>
+<h1>Picking the right chunks</h1>
+<h2>The answer</h2><div class="accent-rule"></div>
+<p>In a RAG system you hand a model a pile of text chunks and ask it to pick the ones that answer the question. We tested who picks best, and what each picker costs.</p>
+<p><strong>Jev (TypeSafe) picked best, finding 24.5% of the right chunks.</strong> Jev found 24.5% at $0.84 per thousand questions — 2.6× cheaper than the next cheapest model in the test and 4× cheaper than deepseek-v4.1-flash.</p>
+<p><strong>Every model beat the free option — and by almost exactly the same amount.</strong> Before any model is called, a plain keyword search has already put the chunks in some order. All 5 models improved on that order, by between 11.1 and 11.9 percentage points — a spread of 0.8 points across the whole field. So the reranking step is worth paying for, but <em>which</em> model does it is not something this test can tell apart. What separates them is price.</p>
+<p><strong>A ceiling limits all of this: 33.1%.</strong> That is the share of correct chunks the keyword search put in front of the models at all. No picker can find a chunk it was never shown. Every score below sits under that ceiling, and the ceiling is the single biggest lever in the system — bigger than the choice of model.</p>
+<table class='headline'><thead><tr><th>Model</th><th class='n'>Found the right chunks</th><th class='n'>95% range</th><th class='n'>Cost per 1,000 questions</th><th class='n'>Typical speed</th></tr></thead><tbody><tr><td>Jev (TypeSafe)</td><td class='n'>24.5%</td><td class='n sub'>17.4% to 32.1%</td><td class='n'>$0.84</td><td class='n'>565 ms</td></tr><tr><td>glm-5.3-flash</td><td class='n'>24.4%</td><td class='n sub'>17.7% to 31.6%</td><td class='n'>$2.19</td><td class='n'>3,336 ms</td></tr><tr><td>deepseek-v4.1-flash</td><td class='n'>23.8%</td><td class='n sub'>17.1% to 31.2%</td><td class='n'>$3.68</td><td class='n'>2,585 ms</td></tr><tr><td>qwen3.8-flash</td><td class='n'>23.6%</td><td class='n sub'>16.8% to 30.7%</td><td class='n'>$2.92</td><td class='n'>3,649 ms</td></tr><tr class='unresolved'><td>gemini-3.8-flash</td><td class='n sub' colspan='2'>answered only 81 of 101 — not comparable</td><td class='n'>$11.84</td><td class='n'>3,937 ms</td></tr><tr><td>BM25 only (no model)</td><td class='n'>12.5%</td><td class='n sub'>7.0% to 18.6%</td><td class='n'>$0.00</td><td class='n'>0 ms</td></tr></tbody></table>
+<h2>1 · What we tested</h2><div class="accent-rule"></div>
+<p>One job: <strong>given a question and 100 text chunks, put the chunks in order, best first.</strong> We then check whether the chunks that actually answer the question ended up in the top 5.</p>
+<p>This is the job a RAG system does every time someone asks it something. It is usually called reranking. The 5 best chunks are what gets passed to the model that writes the final answer, so a chunk that does not make the top 5 might as well not exist.</p>
+<p>We used 4 real collections, not a made-up test set:</p>
+<ul><li><strong>BRIGHT</strong> — real questions people posted on StackExchange, each several hundred words long, over a corpus of real documents. It was built specifically so that keyword matching does not work. It is hard on purpose.</li><li><strong>FiQA</strong> — real finance questions over 218,052 real answer passages. Ordinary difficulty.</li></ul>
+<p>Together: <strong>101 questions, 4.1 correct chunks per question on average, 10,100 chunks ranked per model.</strong></p>
+<p>Nobody wrote these questions or judged these answers for us. The questions are real and the judgments of which chunk is correct come with the datasets.</p>
+<h2>2 · How we tested it</h2><div class="accent-rule"></div>
+<p><strong>Every model saw exactly the same thing.</strong> Same questions, same 100 chunks, in the same order, asked the same way. The only thing that changed was the model.</p>
+<p>The 100 chunks are not random. They come from a keyword search (BM25) run over the whole corpus — the same first step a real RAG system uses. So the wrong chunks are genuinely tempting wrong chunks: text that mentions the right words but does not answer the question. That is what makes the job hard.</p>
+<p>The two kinds of model answer differently, so each was asked in its own native way:</p>
+<ul><li><strong>Jev</strong> is given the chunks as its options and returns a score for every one. That ordering is the answer. There is no prompt to tune and no output format to enforce.</li><li><strong>Chat models</strong> are given the chunks in a prompt and asked to reply with a JSON list of the best 10 chunk ids.</li></ul>
+<p>We also ran a <strong>free baseline</strong>: the keyword search&#x27;s own order, with no model involved. This matters more than it sounds. It is the thing every model has to beat to justify existing.</p>
+<p><strong>What we count.</strong> For each question, what share of the correct chunks made the top 5. Averaged over all 101 questions. We report a 95% range beside every score, worked out by resampling the questions — so you can see when two models are too close to separate.</p>
+<h2>3 · The analysis</h2><div class="accent-rule"></div>
+<table class='bysource'><thead><tr><th>Model</th><th class='n'>BRIGHT biology</th><th class='n'>BRIGHT economics</th><th class='n'>BRIGHT psychology</th><th class='n'>FiQA finance</th></tr></thead><tbody><tr><td>Jev (TypeSafe)</td><td class='n'>22.3%</td><td class='n'>12.2%</td><td class='n'>8.0%</td><td class='n'>34.7%</td></tr><tr><td>glm-5.3-flash</td><td class='n'>27.0%</td><td class='n'>6.8%</td><td class='n'>9.4%</td><td class='n'>33.3%</td></tr><tr><td>deepseek-v4.1-flash</td><td class='n'>27.8%</td><td class='n'>10.2%</td><td class='n'>8.9%</td><td class='n'>32.0%</td></tr><tr><td>qwen3.8-flash</td><td class='n'>25.8%</td><td class='n'>11.5%</td><td class='n'>8.9%</td><td class='n'>32.0%</td></tr><tr><td>gemini-3.8-flash</td><td class='n'>27.8%</td><td class='n'>11.5%</td><td class='n'>2.7%</td><td class='n'>34.9%</td></tr><tr><td>BM25 only (no model)</td><td class='n'>7.8%</td><td class='n'>2.0%</td><td class='n'>1.2%</td><td class='n'>21.6%</td></tr></tbody></table>
+<p><strong>The two collections are different problems.</strong> FiQA scores are several times higher than BRIGHT scores for every model, including the free baseline. BRIGHT was designed to defeat keyword search, and it does: the keyword step hands over very little that is correct, so there is little for any picker to find.</p>
+<p><strong>Where the models help is not where you would guess.</strong> The lift each model gives over the free keyword baseline, measured question by question on the same questions:</p>
+<table class='breakeven'><thead><tr><th>Model</th><th class='n'>Better than free keyword search by</th><th class='n'>95% range</th><th>Verdict</th></tr></thead><tbody><tr><td>Jev (TypeSafe)</td><td class='n'>+11.8%</td><td class='n sub'>6.1% to 18.0%</td><td>really helps</td></tr><tr><td>glm-5.3-flash</td><td class='n'>+11.2%</td><td class='n sub'>5.9% to 16.9%</td><td>really helps</td></tr><tr><td>deepseek-v4.1-flash</td><td class='n'>+11.2%</td><td class='n sub'>5.4% to 17.4%</td><td>really helps</td></tr><tr><td>qwen3.8-flash</td><td class='n'>+11.1%</td><td class='n sub'>5.6% to 17.1%</td><td>really helps</td></tr><tr><td>gemini-3.8-flash</td><td class='n'>+11.9%</td><td class='n sub'>6.3% to 18.0%</td><td>really helps</td></tr></tbody></table>
+<p>A &quot;tie&quot; verdict means the test cannot tell that model apart from doing nothing. It does not mean the model is bad. It means <strong>this sample of 101 questions is not enough to prove it helps</strong>, and paying for it is a bet rather than a decision.</p>
+<table class='matrix'><thead><tr><th></th><th class='rot'>1</th><th class='rot'>2</th><th class='rot'>3</th><th class='rot'>4</th><th class='rot'>5</th><th class='rot'>6</th></tr></thead><tbody><tr><td><span class='idx'>1</span>Jev (TypeSafe)</td><td class='v-self'>·</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-better'>+</td></tr><tr><td><span class='idx'>2</span>glm-5.3-flash</td><td class='v-tie'>=</td><td class='v-self'>·</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-better'>+</td></tr><tr><td><span class='idx'>3</span>deepseek-v4.1-flash</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-self'>·</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-better'>+</td></tr><tr><td><span class='idx'>4</span>qwen3.8-flash</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-self'>·</td><td class='v-tie'>=</td><td class='v-better'>+</td></tr><tr><td><span class='idx'>5</span>gemini-3.8-flash</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-tie'>=</td><td class='v-self'>·</td><td class='v-better'>+</td></tr><tr><td><span class='idx'>6</span>BM25 only (no model)</td><td class='v-worse'>−</td><td class='v-worse'>−</td><td class='v-worse'>−</td><td class='v-worse'>−</td><td class='v-worse'>−</td><td class='v-self'>·</td></tr></tbody></table>
+<p>A <code>+</code> means the model on that row really is better than the model in that column. A <code>=</code> means we cannot tell them apart. Most of this grid is <code>=</code>, and that is the honest result.</p>
+<h2>4 · Cost against effectiveness</h2><div class="accent-rule"></div>
+<svg class='chart' viewBox='0 0 900 460' xmlns='http://www.w3.org/2000/svg'><line class='grid' x1='58' y1='404.0' x2='662' y2='404.0'/><text class='ax' x='50' y='407.0' text-anchor='end'>22.6%</text><line class='grid' x1='58' y1='311.5' x2='662' y2='311.5'/><text class='ax' x='50' y='314.5' text-anchor='end'>23.3%</text><line class='grid' x1='58' y1='219.0' x2='662' y2='219.0'/><text class='ax' x='50' y='222.0' text-anchor='end'>24.0%</text><line class='grid' x1='58' y1='126.5' x2='662' y2='126.5'/><text class='ax' x='50' y='129.5' text-anchor='end'>24.8%</text><line class='grid' x1='58' y1='34.0' x2='662' y2='34.0'/><text class='ax' x='50' y='37.0' text-anchor='end'>25.5%</text><line class='axis' x1='58' y1='404' x2='662' y2='404'/><line class='grid' x1='71.2' y1='404' x2='71.2' y2='409'/><text class='ax' x='71.2' y='422' text-anchor='middle'>$0.50</text><line class='grid' x1='230.4' y1='404' x2='230.4' y2='409'/><text class='ax' x='230.4' y='422' text-anchor='middle'>$1.00</text><line class='grid' x1='389.6' y1='404' x2='389.6' y2='409'/><text class='ax' x='389.6' y='422' text-anchor='middle'>$2.00</text><line class='grid' x1='600.1' y1='404' x2='600.1' y2='409'/><text class='ax' x='600.1' y='422' text-anchor='middle'>$5.00</text><text class='ax-title' x='58' y='450'>cost per 1,000 questions</text><text class='ax-title' x='12' y='20'>share found</text><line class='leader' x1='534.8' y1='244.4' x2='670' y2='244.4'/><circle class='pt' cx='529.8' cy='244.4' r='4'/><text class='pt-label' x='675' y='247.4'>deepseek-v4.1-flash 23.8%</text><line class='leader' x1='415.1' y1='178.9' x2='670' y2='178.9'/><circle class='pt' cx='410.1' cy='178.9' r='4'/><text class='pt-label' x='675' y='181.9'>glm-5.3-flash 24.4%</text><line class='leader' x1='195.2' y1='163.1' x2='670' y2='163.1'/><circle class='pt jev' cx='190.2' cy='163.1' r='4'/><text class='pt-label jev' x='675' y='166.1'>Jev (TypeSafe) 24.5%</text><line class='leader' x1='481.5' y1='274.9' x2='670' y2='274.9'/><circle class='pt' cx='476.5' cy='274.9' r='4'/><text class='pt-label' x='675' y='277.9'>qwen3.8-flash 23.6%</text></svg>
+<p>The horizontal axis is cost per thousand questions and it is a log scale — each step is ten times the last. It has to be, because the cheapest and dearest models here are 4× apart in price while sitting within about a point of each other on quality.</p>
+<p><strong>Jev sits at the far left.</strong> Its price comes almost entirely from reading the chunks, because it charges nothing for what it writes back. A reranking job is nearly all reading: 100 chunks in, a short list out. That is the single reason the gap is this wide, and it would narrow on a job that produced long output.</p>
+<p><strong>The premium model could not be run at this size.</strong> deepseek-v4.1-flash was the dearest model we could afford across all 101 questions. Running sonnet-5 over the same 100 chunks would have cost $24.73 — more than this entire experiment. That is a real constraint, not a rhetorical one, and it is why the premium comparison below was run on a shorter list.</p>
+<h3>The same test with only 20 chunks</h3>
+<p>We ran a second, smaller version: the same questions, but only the top 20 chunks, which is cheap enough to include a premium model.</p>
+<p>Jev scored 17.9%. Total spend $0.58.</p>
+<p><strong>sonnet-5 could not be measured here.</strong> Only 37 of 101 of its calls completed — the rest were refused by the provider for want of prepaid credit, not by the model. The questions that did get through are the ones that happened to run first, not a fair sample, so averaging them would produce a number that looks like a result and is not one. It is left out rather than dressed up.</p>
+<p><strong>The 20-chunk version is much harder than it looks</strong>, because with only 20 chunks the keyword step hands over almost nothing correct on the BRIGHT questions. The lesson is not about the models. It is that <strong>giving the picker more chunks to look at raises the ceiling faster than upgrading the picker does.</strong></p>
+<h2>5 · What could be wrong with this</h2><div class="accent-rule"></div>
+<p><strong>The ceiling dominates everything.</strong> At 33.1%, most correct chunks were never shown to any model. A better first-stage retriever — a proper embedding search instead of keyword matching — would change every number here, probably by more than swapping models does. We used keyword search because it is reproducible with no dependencies and no training, not because it is the best available.</p>
+<p><strong>101 questions is a small sample.</strong> That is why most comparisons come back as ties. The ranges in the tables are real; if two of them overlap, we are not claiming a winner.</p>
+<p><strong>One run, no repeats.</strong> Every model was asked once per question at temperature 0. We did not measure run-to-run variation.</p>
+<p><strong>The judgments are binary and incomplete.</strong> A chunk is either marked correct or it is not. A genuinely useful chunk nobody happened to judge counts as wrong, for every model equally.</p>
+<p><strong>Prompt shape favours nobody deliberately, but it is one shape.</strong> The chat models got one prompt. A different prompt, or a purpose-built reranking model, could do better. We did not tune per model, because tuning one and not the others is how benchmarks get rigged.</p>
+<p><strong>Cost is what the provider billed us</strong>, read back from each call, not estimated from a price list.</p>
+<h2>Appendix A · The protocol in full</h2><div class="accent-rule"></div>
+<ul><li><strong>Questions:</strong> 101 (BRIGHT biology, BRIGHT economics, BRIGHT psychology, FiQA finance).</li><li><strong>Chunks per question:</strong> 100, from BM25 over the full corpus.</li><li><strong>Asked for:</strong> the best 10 chunk ids, best first.</li><li><strong>Scored on:</strong> share of correct chunks in the top 5.</li><li><strong>Models:</strong> 5, plus the free keyword baseline.</li><li><strong>Calls:</strong> 505. <strong>Total spend:</strong> $2.17.</li><li><strong>Temperature:</strong> 0. Reasoning disabled where the provider allows it.</li><li><strong>Seed:</strong> fixed, so every number in this report reproduces exactly.</li></ul>
+<h3>What would make this test unfair to the other models</h3>
+<p>We checked these deliberately:</p>
+<ul><li><em>Jev sees the chunks in a better order.</em> It does not. Every model gets the identical BM25 order.</li><li><em>Jev is asked an easier question.</em> It is asked to score all 100; the chat models are asked for 10. If anything that is more work, not less.</li><li><em>Ties are broken in Jev&#x27;s favour.</em> They are broken by the original retrieval position, identically for every model.</li><li><em>Failed calls are scored as zero.</em> They are not. They are excluded and counted separately, in Appendix C.</li></ul>
+<h2>Appendix B · The full measurement table</h2><div class="accent-rule"></div>
+<table class='full'><thead><tr><th>Model</th><th class='n'>Queries</th><th class='n'>@1</th><th class='n'>@3</th><th class='n'>@5</th><th class='n'>@10</th><th class='n'>Of what was findable</th><th class='n'>nDCG@5</th><th class='n'>MRR</th><th class='n'>Input tokens</th><th class='n'>Cost</th><th class='n'>p50</th><th class='n'>p95</th></tr></thead><tbody><tr><td>Jev (TypeSafe)</td><td class='n'>100</td><td class='n'>13.8%</td><td class='n'>22.1%</td><td class='n'>24.5%</td><td class='n'>26.4%</td><td class='n'>72.2%</td><td class='n'>25.3%</td><td class='n'>33.0%</td><td class='n'>2,019,084</td><td class='n'>$0.085</td><td class='n'>565</td><td class='n'>685</td></tr><tr><td>glm-5.3-flash</td><td class='n'>96</td><td class='n'>16.1%</td><td class='n'>20.7%</td><td class='n'>24.4%</td><td class='n'>29.2%</td><td class='n'>75.7%</td><td class='n'>26.7%</td><td class='n'>34.9%</td><td class='n'>1,750,770</td><td class='n'>$0.221</td><td class='n'>3,336</td><td class='n'>12,517</td></tr><tr><td>deepseek-v4.1-flash</td><td class='n'>100</td><td class='n'>16.5%</td><td class='n'>20.7%</td><td class='n'>23.8%</td><td class='n'>28.2%</td><td class='n'>73.3%</td><td class='n'>26.6%</td><td class='n'>34.7%</td><td class='n'>1,828,033</td><td class='n'>$0.372</td><td class='n'>2,585</td><td class='n'>8,943</td></tr><tr><td>qwen3.8-flash</td><td class='n'>101</td><td class='n'>16.1%</td><td class='n'>21.0%</td><td class='n'>23.6%</td><td class='n'>28.1%</td><td class='n'>73.3%</td><td class='n'>26.1%</td><td class='n'>34.0%</td><td class='n'>1,920,147</td><td class='n'>$0.295</td><td class='n'>3,649</td><td class='n'>5,884</td></tr><tr><td>gemini-3.8-flash</td><td class='n'>81</td><td class='n'>16.2%</td><td class='n'>19.3%</td><td class='n'>22.2%</td><td class='n'>25.1%</td><td class='n'>76.4%</td><td class='n'>25.0%</td><td class='n'>33.3%</td><td class='n'>1,550,923</td><td class='n'>$1.196</td><td class='n'>3,937</td><td class='n'>16,041</td></tr><tr><td>BM25 only (no model)</td><td class='n'>101</td><td class='n'>5.4%</td><td class='n'>8.5%</td><td class='n'>12.5%</td><td class='n'>16.0%</td><td class='n'>33.4%</td><td class='n'>11.1%</td><td class='n'>16.7%</td><td class='n'>0</td><td class='n'>$0.000</td><td class='n'>0</td><td class='n'>0</td></tr></tbody></table>
+<p>&quot;Of what was findable&quot; is the score counting only the questions where a correct chunk was actually in the 100 shown — the picker&#x27;s own share of the work, with the retriever&#x27;s misses removed.</p>
+<h2>Appendix C · Failures and invented chunks</h2><div class="accent-rule"></div>
+<table class='failures'><thead><tr><th>Model</th><th class='n'>Calls that failed</th><th>Why</th><th class='n'>Queries where it invented a passage id</th><th class='n'>Invented ids in total</th></tr></thead><tbody><tr><td>gemini-3.8-flash</td><td class='n'>20</td><td class='sub'>http_error, malformed</td><td class='n'>0</td><td class='n'>0</td></tr><tr><td>glm-5.3-flash</td><td class='n'>5</td><td class='sub'>bad_ids, malformed</td><td class='n'>1</td><td class='n'>2</td></tr><tr><td>deepseek-v4.1-flash</td><td class='n'>1</td><td class='sub'>bad_ids</td><td class='n'>3</td><td class='n'>3</td></tr><tr><td>Jev (TypeSafe)</td><td class='n'>1</td><td class='sub'>http_error</td><td class='n'>0</td><td class='n'>0</td></tr></tbody></table>
+<p><strong>Inventing a chunk id is not the same as ranking badly.</strong> A model that returns an id that does not exist has failed in a way a low score would hide, so it is counted on its own. deepseek-v4.1-flash did this most, on 3 questions.</p>
+<p>Across the whole run there were 27 failed calls.</p>
+<p><strong>Some failures were ours, not the model&#x27;s.</strong> gemini-3.8-flash hit HTTP 402 — our own prepaid balance had too little headroom left for the provider to accept the request. Those calls are counted as failures for honesty, but they say nothing about the model.</p>
+<h2>Appendix D · How the ranges were worked out</h2><div class="accent-rule"></div>
+<p>A score here is an average of per-question fractions, not a pass/fail rate. So the interval is not the one used in the ticket-routing report.</p>
+<p>Instead: resample the 101 questions with replacement, recompute the average, repeat 4,000 times, and read off the 2.5th and 97.5th percentiles. This assumes nothing about the shape of the scores.</p>
+<p>Comparisons between two models are <strong>paired</strong>: both answered the same questions, so the difference is taken question by question before resampling. Unpaired, the variation between easy and hard questions would swamp every real difference and the whole grid would read as ties.</p>
+</main>
+</body>
+</html>

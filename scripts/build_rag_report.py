@@ -493,11 +493,11 @@ def chart(summary: dict) -> str:
     for frac in range(0, 5):
         v = y0 + (y1 - y0) * frac / 4
         y = py(v)
-        parts.append(f"<line class='grid' x1='{PAD['l']}' y1='{y:.1f}' "
+        parts.append(f"<line class='grid' {PAINT['grid']} x1='{PAD['l']}' y1='{y:.1f}' "
                      f"x2='{W - PAD['r']}' y2='{y:.1f}'/>")
-        parts.append(f"<text class='ax' x='{PAD['l'] - 8}' y='{y + 3:.1f}' "
+        parts.append(f"<text class='ax' {PAINT['ax']} x='{PAD['l'] - 8}' y='{y + 3:.1f}' "
                      f"text-anchor='end'>{v * 100:.{dp}f}%</text>")
-    parts.append(f"<line class='axis' x1='{PAD['l']}' y1='{H - PAD['b']}' "
+    parts.append(f"<line class='axis' {PAINT['axis']} x1='{PAD['l']}' y1='{H - PAD['b']}' "
                  f"x2='{W - PAD['r']}' y2='{H - PAD['b']}'/>")
 
     # With the dearest model excluded the points span less than one decade, which
@@ -512,28 +512,58 @@ def chart(summary: dict) -> str:
             x = px(v)
             dollars = 10 ** v / 1e6
             label = f"${dollars:,.2f}" if dollars >= 0.01 else f"${dollars:.4f}"
-            parts.append(f"<line class='grid' x1='{x:.1f}' y1='{H - PAD['b']}' "
+            parts.append(f"<line class='grid' {PAINT['grid']} x1='{x:.1f}' y1='{H - PAD['b']}' "
                          f"x2='{x:.1f}' y2='{H - PAD['b'] + 5}'/>")
-            parts.append(f"<text class='ax' x='{x:.1f}' y='{H - PAD['b'] + 18}' "
+            parts.append(f"<text class='ax' {PAINT['ax']} x='{x:.1f}' y='{H - PAD['b'] + 18}' "
                          f"text-anchor='middle'>{label}</text>")
         decade += 1
-    parts.append(f"<text class='ax-title' x='{PAD['l']}' y='{H - 10}'>"
+    parts.append(f"<text class='ax-title' {PAINT['ax-title']} x='{PAD['l']}' y='{H - 10}'>"
                  f"cost per 1,000 questions</text>")
-    parts.append(f"<text class='ax-title' x='{PAD['l'] - 46}' y='{PAD['t'] - 14}'>share found</text>")
+    parts.append(f"<text class='ax-title' {PAINT['ax-title']} x='{PAD['l'] - 46}' y='{PAD['t'] - 14}'>share found</text>")
 
     placed = [{"s": s, "x": px(math.log10(s["cost_per_1k_micro"])),
                "y": py(s["recall@5"]), "ly": py(s["recall@5"])} for s in pts]
     _declutter(placed)
     for p in placed:
         cls = " jev" if p["s"]["arm"] == "jev" else ""
-        parts.append(f"<line class='leader' x1='{p['x'] + 5:.1f}' y1='{p['y']:.1f}' "
+        parts.append(f"<line class='leader' {PAINT['leader']} x1='{p['x'] + 5:.1f}' y1='{p['y']:.1f}' "
                      f"x2='{W - PAD['r'] + 8}' y2='{p['ly']:.1f}'/>")
-        parts.append(f"<circle class='pt{cls}' cx='{p['x']:.1f}' cy='{p['y']:.1f}' r='4'/>")
-        parts.append(f"<text class='pt-label{cls}' x='{W - PAD['r'] + 13}' "
+        parts.append(f"<circle class='pt{cls}' {PAINT['pt' + cls]} cx='{p['x']:.1f}' cy='{p['y']:.1f}' r='4'/>")
+        parts.append(f"<text class='pt-label{cls}' {PAINT['pt-label' + cls]} x='{W - PAD['r'] + 13}' "
                      f"y='{p['ly'] + 3:.1f}'>{PRETTY[p['s']['arm']]} "
                      f"{pct(p['s']['recall@5'], dp)}</text>")
     parts.append("</svg>")
     return "".join(parts)
+
+
+#: Inline SVG paint, repeated as presentation attributes on every chart element.
+#:
+#: The stylesheet already carries identical `svg.chart .grid` rules, and they do
+#: style the HTML — but WeasyPrint does not cascade the document's CSS into an
+#: inline SVG, so in the PDF those rules select nothing. The chart rendered with
+#: whatever the SVG engine defaulted to, which is how it reached GitHub as a
+#: scatter plot with no axes. Proved rather than assumed: setting `.grid` to red
+#: and rebuilding produced a PDF with no red in it.
+#:
+#: `build_report.py` has always written these attributes; this chart was the one
+#: that did not, which is why only this report's chart was broken. Keep both:
+#: attributes for the PDF, the stylesheet for the HTML.
+#:
+#: The grid and leader sit one step darker than the doctrine hairline tokens
+#: (#F0F0F0 -> #E5E5E5, #E5E5E5 -> #D8D8D8). A hairline that reads on a backlit
+#: screen disappears in a PDF shown at page width, which is where this is read.
+MONO = "JetBrains Mono, ui-monospace, monospace"
+PAINT = {
+    "grid": "stroke='#E5E5E5' stroke-width='1'",
+    "axis": "stroke='#0A0A0A' stroke-width='1'",
+    "leader": "stroke='#D8D8D8' stroke-width='1'",
+    "pt": "fill='#5C6066'",
+    "pt jev": "fill='#1E6FFF'",
+    "ax": f"fill='#8A8F96' font-family='{MONO}' font-size='10'",
+    "ax-title": f"fill='#5C6066' font-family='{MONO}' font-size='10'",
+    "pt-label": f"fill='#1A1A1A' font-family='{MONO}' font-size='10'",
+    "pt-label jev": f"fill='#1E6FFF' font-family='{MONO}' font-size='10' font-weight='500'",
+}
 
 
 def chart_span(summary: dict) -> str:

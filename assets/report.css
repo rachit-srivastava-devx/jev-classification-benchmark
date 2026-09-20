@@ -208,18 +208,23 @@ pre {
   pre { font-size: 8.5pt; break-inside: avoid; }
 }
 
-/* NOTE: the svg.chart fills below are literal hex, not var(). WeasyPrint
-   does not resolve custom properties inside SVG paint properties, so the
-   PDF — the artifact people actually read — lost every colour in the
-   chart. Values are identical to the doctrine tokens they replace.
+/* NOTE: every svg.chart paint below is literal hex, not var(). WeasyPrint does
+   not resolve custom properties inside SVG paint properties, so the PDF — the
+   artifact people actually read — lost every colour in the chart. `fill` was
+   fixed first and `stroke` was missed, which left the dots and labels painted
+   and the axes, gridlines and leaders invisible: a scatter plot with no axes.
+   Values match the doctrine tokens they replace, except the grid and leader,
+   which move one step darker (--rule-2 #F0F0F0 -> #E5E5E5, --rule #E5E5E5 ->
+   #D8D8D8) because a hairline that reads on a backlit screen disappears in a
+   PDF viewed at page width on GitHub, which is where this gets read.
    --- cost vs effectiveness chart -------------------------------------------
    Hairlines and one accent. No fills, no legend box: the labels sit against the
    points they name, joined by a leader rather than a colour key. */
 
 svg.chart { width: 100%; height: auto; display: block; margin: 24px 0 32px; }
-svg.chart .grid   { stroke: var(--rule-2); stroke-width: 1; }
-svg.chart .axis   { stroke: var(--ink); stroke-width: 1; }
-svg.chart .leader { stroke: var(--rule); stroke-width: 1; }
+svg.chart .grid   { stroke: #E5E5E5; stroke-width: 1; }
+svg.chart .axis   { stroke: #0A0A0A; stroke-width: 1; }
+svg.chart .leader { stroke: #D8D8D8; stroke-width: 1; }
 svg.chart .pt     { fill: #5C6066; }
 svg.chart .pt.jev { fill: #1E6FFF; }
 svg.chart .ax {

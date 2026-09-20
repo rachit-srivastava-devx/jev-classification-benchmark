@@ -253,3 +253,44 @@ def test_the_shipped_roster_is_two_collections_over_four_topics():
 
 def test_a_single_source_counts_as_one_of_each():
     assert collections(["fiqa"]) == 1
+
+
+# --- the chart must paint itself, not rely on the stylesheet ------------------
+# WeasyPrint does not cascade the document's CSS into an inline SVG, so a chart
+# styled only by `class=` renders in the PDF with no axes, gridlines or leaders
+# — which is exactly how this report reached GitHub. The classes stay, for the
+# HTML; these tests hold the line that every element also carries its paint as a
+# presentation attribute, which is the only thing the PDF reads.
+
+import re  # noqa: E402
+
+from scripts.build_rag_report import chart  # noqa: E402
+
+
+def two_point_summary():
+    def s(arm, cost, recall):
+        return {"arm": arm, "cost_per_1k_micro": cost, "recall@5": recall,
+                "scored": 100, "attempted": 100}
+    return {"jev": s("jev", 500_000, 0.245),
+            "glm-5.3-flash-low": s("glm-5.3-flash-low", 1_200_000, 0.244)}
+
+
+def test_every_chart_line_carries_a_stroke_attribute():
+    svg = chart(two_point_summary())
+    lines = re.findall(r"<line [^>]*>", svg)
+    assert lines, "no lines in the chart at all"
+    assert all("stroke=" in ln for ln in lines), \
+        [ln for ln in lines if "stroke=" not in ln]
+
+
+def test_every_chart_glyph_carries_a_fill_attribute():
+    svg = chart(two_point_summary())
+    glyphs = re.findall(r"<(?:text|circle) [^>]*>", svg)
+    assert glyphs, "no points or labels in the chart at all"
+    assert all("fill=" in g for g in glyphs), [g for g in glyphs if "fill=" not in g]
+
+
+def test_the_jev_point_is_painted_with_the_accent():
+    svg = chart(two_point_summary())
+    jev = re.search(r"<circle class='pt jev' [^>]*>", svg)
+    assert jev and "#1E6FFF" in jev.group(0), jev and jev.group(0)

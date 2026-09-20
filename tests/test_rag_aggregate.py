@@ -137,7 +137,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.build_rag_report import _failure_tokens  # noqa: E402
+from scripts.build_rag_report import (  # noqa: E402
+    _failure_tokens, _separable_counts)
 
 
 def _summary(arm, *, failures=0, invented=0):
@@ -626,3 +627,86 @@ def test_a_per_passage_arm_records_that_it_made_a_hundred_calls():
     assert summarise(rows, SEED)["jev"]["calls_per_query"] == 1
     rows = [row("glm-5.3-flash-low", f"q{i}", 1.0) for i in range(3)]
     assert summarise(rows, SEED)["glm-5.3-flash-low"]["calls_per_query"] == 1
+
+
+# --- the run's own spend cap is not a model defect ---------------------------
+# At depth 100 the account's key limit refused every remaining call with HTTP
+# 403 and the message "Key limit exceeded". The scan matched only "402", so the
+# report withheld those arms' scores without ever telling the reader the cause
+# was our budget. One arm lost all 350 queries that way and another lost 42.
+
+def test_a_403_key_limit_is_reported_as_ours_not_the_model_s():
+    summary = {"sonnet-5": _summary("sonnet-5", failures=2)}
+    rows = [{"arm": "sonnet-5", "query_id": "q1", "failure": "http",
+             "detail": 'HTTP 403: {"error":{"message":"Key limit exceeded (total limit)"}}'}]
+    note = _failure_tokens(summary, rows)["credit_note"]
+    assert "403" in note and "not the model" in note
+
+
+def test_an_ordinary_403_is_not_blamed_on_our_budget():
+    """A permission 403 is the provider's answer about us, not a spend cap."""
+    summary = {"jev": _summary("jev", failures=1)}
+    rows = [{"arm": "jev", "query_id": "q1", "failure": "http",
+             "detail": 'HTTP 403: {"error":{"message":"model not available"}}'}]
+    assert _failure_tokens(summary, rows)["credit_note"] == ""
+
+
+def test_the_credit_note_counts_queries_per_arm():
+    summary = {"a": _summary("a", failures=2), "b": _summary("b", failures=1)}
+    rows = ([{"arm": "a", "query_id": f"q{i}", "failure": "http",
+              "detail": "HTTP 402: no credits"} for i in range(2)]
+            + [{"arm": "b", "query_id": "q9", "failure": "http",
+                "detail": "HTTP 402: no credits"}])
+    note = _failure_tokens(summary, rows)["credit_note"]
+    assert "(2 of 3)" in note and "(1 of 3)" in note
+
+
+# --- the grid is counted, never characterised --------------------------------
+# An earlier draft said "most of this grid is `=`" beside a grid in which 14 of
+# 21 cells were not. Both sentences about the grid now come from one counter.
+
+def test_two_clearly_different_models_are_not_called_a_tie():
+    rows = _lift_rows("good", 1.0) + [dict(r, arm="bad", **{"recall@5": 0.0})
+                                      for r in _lift_rows("good", 1.0)
+                                      if r["arm"] == "good"]
+    summary = {"good": {"recall@5": 1.0}, "bad": {"recall@5": 0.0},
+               "bm25-baseline": {"recall@5": 0.0}}
+    assert _separable_counts(rows, summary) == (1, 1)
+
+
+def test_two_identical_models_are_called_a_tie():
+    rows = _lift_rows("a", 0.3) + [dict(r, arm="b") for r in _lift_rows("a", 0.3)
+                                   if r["arm"] == "a"]
+    summary = {"a": {"recall@5": 0.3}, "b": {"recall@5": 0.3},
+               "bm25-baseline": {"recall@5": 0.0}}
+    assert _separable_counts(rows, summary) == (0, 1)
+
+
+def test_an_arm_that_never_answered_is_not_compared_at_all():
+    """`recall@5` of None means no scoreable answer: it cannot be in the grid."""
+    rows = _lift_rows("a", 0.3)
+    summary = {"a": {"recall@5": 0.3}, "dead": {"recall@5": None},
+               "bm25-baseline": {"recall@5": 0.0}}
+    assert _separable_counts(rows, summary) == (0, 0)
+
+
+# --- the report may not invent a corpus size ---------------------------------
+# `tasks.get("corpus_total", 218052)` had a default that could never be
+# overridden, and the literal was the total of four corpora printed as FiQA's.
+
+def test_a_missing_sizes_file_stops_the_build_instead_of_guessing(monkeypatch):
+    import scripts.build_rag_report as b
+    monkeypatch.setattr(b, "SIZES_PATH", Path("/nonexistent/corpus-sizes.json"))
+    with pytest.raises(FileNotFoundError):
+        b._corpus_sizes()
+
+
+def test_an_unknown_corpus_name_raises_rather_than_returning_zero(tmp_path, monkeypatch):
+    import json as _json
+    import scripts.build_rag_report as b
+    f = tmp_path / "corpus-sizes.json"
+    f.write_text(_json.dumps({"corpus_sizes": {"fiqa": 57638}}))
+    monkeypatch.setattr(b, "SIZES_PATH", f)
+    assert b._corpus_size("fiqa") == 57638
+    with pytest.raises(KeyError):
+        b._corpus_size("wands")

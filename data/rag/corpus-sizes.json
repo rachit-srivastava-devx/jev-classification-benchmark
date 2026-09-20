@@ -1,0 +1,10 @@
+{
+ "corpus_sizes": {
+  "bright-biology": 57359,
+  "bright-economics": 50220,
+  "bright-psychology": 52835,
+  "fiqa": 57638,
+  "wands": 42994
+ },
+ "total": 261046
+}

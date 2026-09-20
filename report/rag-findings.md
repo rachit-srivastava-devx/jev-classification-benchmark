@@ -51,8 +51,15 @@ cover {{n_sources}} topic areas:
 - **BRIGHT** — real questions people posted on StackExchange, each several hundred words
   long, over a corpus of real documents. It was built specifically so that keyword
   matching does not work. It is hard on purpose.
-- **FiQA** — real finance questions over {{corpus_size}} real answer passages. Ordinary
+- **FiQA** — real finance questions over {{fiqa_corpus_size}} real answer passages. Ordinary
   difficulty.
+- **WANDS** — real Wayfair shopping searches over {{wands_corpus_size}} real products. Every
+  product was judged by a person as `Exact`, `Partial` or `Irrelevant`, and only `Exact`
+  counts as correct here. `Partial` — the right kind of thing but not the thing asked for
+  — is scored as wrong on purpose, because that is exactly the distractor keyword search
+  ranks highly and exactly the distinction a reranker is bought to make. Queries with more
+  than 8 correct products were dropped: five slots and twenty-eight right answers is not a
+  test of discrimination.
 
 Together: **{{n_queries}} questions, {{gold_per_query}} correct chunks per question on
 average, {{n_passages_ranked}} chunks ranked per model.**
@@ -154,7 +161,7 @@ enough to prove it helps**, and paying for it is a bet rather than a decision.
 {{MATRIX}}
 
 A `+` means the model on that row really is better than the model in that column. A `=`
-means we cannot tell them apart. Most of this grid is `=`, and that is the honest result.
+means we cannot tell them apart. {{matrix_reading}}
 
 ## 4 · Cost against effectiveness
 

@@ -92,7 +92,13 @@ def tokens(res: dict, summary: dict, tasks: dict, res20: dict | None) -> dict[st
         "n_sources": str(len(per_source)),
         "n_collections": str(len({SOURCE_LABEL[s].split()[0] for s in per_source})),
         "source_list": ", ".join(SOURCE_LABEL[s] for s in per_source),
-        "corpus_size": f"{tasks.get('corpus_total', 218052):,}",
+        # Per-corpus, from the run that read the corpora — never a literal.
+        # This was `tasks.get("corpus_total", 218052)`, whose default could
+        # never be overridden because nothing ever wrote that key, so the
+        # report described FiQA's corpus with the total of all four.
+        "fiqa_corpus_size": f"{_corpus_size('fiqa'):,}",
+        "wands_corpus_size": f"{_corpus_size('wands'):,}",
+        "corpus_size": f"{sum(_corpus_sizes().values()):,}",
         "top_k": str(res["top_k"]),
         "total_spend": usd(res["spend_micro"], 2),
         "best_model": PRETTY[best["arm"]],
@@ -110,6 +116,15 @@ def tokens(res: dict, summary: dict, tasks: dict, res20: dict | None) -> dict[st
         "selection_rule": _selection_rule(),
     }
     out.update(_lift_tokens(summary, rows))
+    # Counted, not characterised. An earlier draft said "most of this grid is
+    # `=`" beside a grid in which most cells were not.
+    _res, _tot = _separable_counts(rows, summary)
+    out["matrix_reading"] = (
+        f"{_res} of the {_tot} comparisons come out as a real difference and "
+        f"{_tot - _res} as a tie." + (
+            " The differences are real but narrow, so this grid ranks the models "
+            "far less sharply than their prices do."
+            if _res else " On this sample the field is indistinguishable."))
     out.update(_encoding_tokens(summary, rows))
     out.update(_cost_tokens(ranked, jev))
     out.update(_depth_tokens(res20, summary))
@@ -134,6 +149,83 @@ def _selection_rule() -> str:
             f"{f.PER_DOMAIN} per BRIGHT domain, {f.FIQA_N} from FiQA and {f.WANDS_N} from "
             f"WANDS, retrieve the top {f.DEPTH} chunks for each with BM25, and freeze the "
             f"result to disk \u2014 no random sampling, no seed")
+
+
+SIZES_PATH = Path(__file__).resolve().parents[1] / "data/rag/corpus-sizes.json"
+
+
+def _corpus_sizes() -> dict[str, int]:
+    """Corpus sizes as counted by `fetch_rag_corpus.py --sizes-only`.
+
+    Deliberately has no fallback. A missing file stops the build rather than
+    letting the report print a plausible number nobody measured.
+    """
+    if not SIZES_PATH.exists():
+        raise FileNotFoundError(
+            f"{SIZES_PATH} is missing — run: "
+            "python scripts/fetch_rag_corpus.py --sizes-only")
+    return json.loads(SIZES_PATH.read_text())["corpus_sizes"]
+
+
+def _corpus_size(source: str) -> int:
+    sizes = _corpus_sizes()
+    if source not in sizes:
+        raise KeyError(f"{source} not in {SIZES_PATH}: have {sorted(sizes)}")
+    return sizes[source]
+
+
+def _pairwise(rows: list[dict], summary: dict) -> tuple[int, int, list[float]]:
+    """Every head-to-head comparison, paired on the query.
+
+    Returns (resolved, total, gaps) where `gaps` holds the observed paired mean
+    difference, in percentage points, for the comparisons that resolve. One
+    function so that no two sentences in the report can count the same grid
+    differently — an earlier draft described it as mostly ties beside a grid in
+    which most cells were not ties.
+    """
+    arms = [name for name, v in summary.items()
+            if name != "bm25-baseline" and v.get("recall@5") is not None]
+    rng = random.Random(SEED)
+    resolved, total, gaps = 0, 0, []
+    for i, a in enumerate(arms):
+        for b in arms[i + 1:]:
+            xs, ys = align(rows, a, b, "recall@5")
+            if not xs:
+                continue
+            total += 1
+            if verdict(paired_difference(xs, ys, rng)) != "tie":
+                resolved += 1
+                gaps.append(abs(sum(x - y for x, y in zip(xs, ys)) / len(xs)) * 100)
+    return resolved, total, gaps
+
+
+def _separable_counts(rows: list[dict], summary: dict) -> tuple[int, int]:
+    resolved, total, _ = _pairwise(rows, summary)
+    return resolved, total
+
+
+def _separability(rows: list[dict], summary: dict) -> str:
+    """Say whether the models are actually distinguishable, from the paired tests.
+
+    An earlier draft asserted flatly that this test could not tell the models
+    apart, reasoning from the *unpaired* confidence intervals in the headline
+    table, which overlap. That is the wrong test for this design: every model
+    answered the same queries, so the paired comparison is both available and
+    strictly more powerful, and it does resolve most of these pairs. The claim
+    is therefore counted here rather than asserted.
+    """
+    resolved, total, gaps = _pairwise(rows, summary)
+    if not total:
+        return ""
+    if not resolved:
+        return (f"Which model does it is not something this test can tell apart: "
+                f"all {total} head-to-head comparisons are ties.")
+    return (f"Which model does it matters less than it looks. Of the {total} "
+            f"head-to-head comparisons between the models that answered, "
+            f"{resolved} are real differences and {total - resolved} are ties this "
+            f"sample cannot resolve \u2014 and the differences that are real are "
+            f"small, between {min(gaps):.1f} and {max(gaps):.1f} percentage points. "
+            f"What separates these models far more sharply is price.")
 
 
 def _ceiling(rows: list[dict]) -> float:
@@ -192,8 +284,7 @@ def _lift_tokens(summary: dict, rows: list[dict]) -> dict[str, str]:
             f"put the chunks in some order. All {n_models} models improved on that "
             f"order, by between {min(lifts):.1f} and {max(lifts):.1f} percentage "
             f"points \u2014 a spread of {spread:.1f} points across the whole field. "
-            f"So the reranking step is worth paying for, but *which* model does it is "
-            f"not something this test can tell apart. What separates them is price."
+            f"So the reranking step is worth paying for. {_separability(rows, summary)}"
             + (f" {len(unmeasured)} model{'s' if len(unmeasured) > 1 else ''} "
                f"({', '.join(PRETTY.get(a, a) for a in unmeasured)}) returned no "
                f"scoreable answer at all and "
@@ -297,6 +388,7 @@ def _depth_tokens(res20: dict | None, summary100: dict) -> dict[str, str]:
 
 
 def _failure_tokens(summary: dict, rows: list[dict]) -> dict[str, str]:
+    TOTAL_Q = len({r.get("query_id") for r in rows if r.get("query_id")})
     total = sum(s["failures"] for s in summary.values())
     dropped = sum(s["queries_with_dropped_ids"] for s in summary.values())
 
@@ -317,14 +409,33 @@ def _failure_tokens(summary: dict, rows: list[dict]) -> dict[str, str]:
     # An HTTP 402 is our account running out of headroom, not the model failing.
     # Reporting it as a model defect would be a false claim about a real product,
     # so the cause is detected and named rather than left to the reader.
-    starved = sorted({r["arm"] for r in rows
-                      if "402" in (r.get("detail") or "")})
+    # Two different ways our own account, not the model, ends a call: HTTP 402
+    # (no prepaid balance) and HTTP 403 with the provider's key-limit message
+    # (the API key's own spend cap reached). Matching only "402" missed the
+    # second entirely, which mattered: at depth 100 the cap, not the model,
+    # is what stopped one arm completely and cut into another.
+    def _ours(r: dict) -> bool:
+        d = r.get("detail") or ""
+        return "402" in d or ("403" in d and "limit exceeded" in d.lower())
+
+    starved: dict[str, int] = {}
+    codes: set[str] = set()
+    for r in rows:
+        if _ours(r):
+            starved[r["arm"]] = starved.get(r["arm"], 0) + 1
+            codes.update(c for c in ("402", "403") if c in (r.get("detail") or ""))
     if starved:
-        names = ", ".join(PRETTY.get(a, a) for a in starved)
-        credit = (f"**Some failures were ours, not the model's.** {names} hit "
-                  f"HTTP 402 — our own prepaid balance had too little headroom left "
-                  f"for the provider to accept the request. Those calls are counted "
-                  f"as failures for honesty, but they say nothing about the model.")
+        per = ", ".join(f"{PRETTY.get(a, a)} ({n}{f' of {TOTAL_Q}' if TOTAL_Q else ''})"
+                        for a, n in sorted(starved.items(), key=lambda kv: -kv[1]))
+        seen = " and ".join(f"HTTP {c}" for c in sorted(codes))
+        credit = (f"**Some failures were ours, not the model's.** ({seen}.) "
+                  f"Our own API key hit "
+                  f"its spend limit part-way through the run, and every call after that "
+                  f"came back refused before it ever reached a model: {per}. Those calls "
+                  f"are counted as failures so the coverage numbers stay honest, but they "
+                  f"are evidence about our budget, not about the model. Any arm above "
+                  f"whose coverage is short by roughly this many queries is being "
+                  f"under-reported for that reason.")
     else:
         credit = ""
 

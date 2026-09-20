@@ -72,6 +72,21 @@ PASSAGE_CHARS = 1200  #: hard cap per passage, so one long document cannot domin
 #: and it is declared here as a number rather than applied by eye.
 WANDS_MAX_GOLD = 8
 
+#: Corpus sizes, recorded as the corpora are read rather than typed into the
+#: report by hand. The report used to carry one of these as a literal with a
+#: `dict.get` default that could never fire, which is how it came to describe
+#: FiQA's 57,638 passages with the 218,052 total of all four text corpora.
+#: A number the reader is asked to trust has to come from the run that made it.
+CORPUS_SIZES: dict[str, int] = {}
+SIZES_PATH = "data/rag/corpus-sizes.json"
+
+
+def _note_size(source: str, n: int) -> None:
+    """Record one corpus's size, refusing a silent disagreement between runs."""
+    if CORPUS_SIZES.setdefault(source, n) != n:
+        raise ValueError(
+            f"{source}: counted {n:,} passages now, {CORPUS_SIZES[source]:,} earlier")
+
 
 def _read(url: str) -> list[dict]:
     return pq.read_table(fsspec.open(url, "rb").open()).to_pylist()
@@ -110,6 +125,7 @@ def bright_tasks() -> list[dict]:
         corpus = {d["id"]: d["content"] for d in docs}
         index = BM25(corpus)
         examples = _read(f"{BRIGHT}examples/{domain}/0000.parquet")
+        _note_size(f"bright-{domain}", len(corpus))
         print(f"  bright/{domain}: {len(corpus):,} passages, {len(examples)} queries")
         taken = 0
         for ex in examples:
@@ -137,6 +153,7 @@ def fiqa_tasks() -> list[dict]:
     for r in _read(FIQA_QRELS):
         if int(r["score"]) > 0:
             gold_by_q.setdefault(str(r["query-id"]), set()).add(str(r["corpus-id"]))
+    _note_size("fiqa", len(corpus))
     print(f"  fiqa: {len(corpus):,} passages, {len(gold_by_q)} judged queries")
     out = []
     for qid in sorted(gold_by_q, key=int):
@@ -190,6 +207,7 @@ def wands_tasks() -> list[dict]:
     for r in _wands_rows("label.csv"):
         if r["label"] == "Exact" and r["product_id"] in corpus:
             gold_by_q.setdefault(r["query_id"], set()).add(r["product_id"])
+    _note_size("wands", len(corpus))
     print(f"  wands: {len(corpus):,} products, {len(gold_by_q)} queries with an exact match")
 
     out = []
@@ -206,12 +224,44 @@ def wands_tasks() -> list[dict]:
     return out
 
 
-def main() -> None:
+def _write_sizes(root: pathlib.Path) -> pathlib.Path:
+    """Write the corpus sizes the report quotes, keyed by the source names in tasks.json."""
+    out = root / SIZES_PATH
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(
+        {"corpus_sizes": dict(sorted(CORPUS_SIZES.items())),
+         "total": sum(CORPUS_SIZES.values())}, indent=1) + "\n")
+    return out
+
+
+def main(argv: list[str] | None = None) -> None:
+    # `--sizes-only` re-reads the same pinned corpora to record their sizes
+    # without touching tasks.json: the committed task set is what the published
+    # results were measured against, so rebuilding it would invalidate them.
+    sizes_only = "--sizes-only" in (argv if argv is not None else sys.argv[1:])
+    root = pathlib.Path(__file__).resolve().parents[1]
     print("building reranking tasks (BM25 over the real corpora)")
     tasks = bright_tasks() + fiqa_tasks() + wands_tasks()
-    out = pathlib.Path(__file__).resolve().parents[1] / "data/rag/tasks.json"
+    sizes = _write_sizes(root)
+    print(f"\ncorpus sizes -> {sizes}")
+    for name, n in sorted(CORPUS_SIZES.items()):
+        print(f"  {name:20} {n:>9,} passages")
+    print(f"  {'TOTAL':20} {sum(CORPUS_SIZES.values()):>9,} passages")
+
+    if sizes_only:
+        # Free provenance check: the committed tasks must still be the tasks
+        # these pinned sources produce. A mismatch means a source moved.
+        committed = json.loads((root / "data/rag/tasks.json").read_text())["tasks"]
+        now, was = [t["query_id"] for t in tasks], [t["query_id"] for t in committed]
+        print(f"\ntasks.json NOT rewritten (--sizes-only). "
+              f"query ids match committed set: {now == was} "
+              f"({len(now)} rebuilt vs {len(was)} committed)")
+        return
+
+    out = root / "data/rag/tasks.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"depth": DEPTH, "passage_chars": PASSAGE_CHARS,
+                               "corpus_sizes": dict(sorted(CORPUS_SIZES.items())),
                                "tasks": tasks}, indent=1))
     kb = out.stat().st_size / 1024
     print(f"\n{len(tasks)} tasks -> {out} ({kb:,.0f} KB)")

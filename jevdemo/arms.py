@@ -35,25 +35,36 @@ class Arm:
         reasoning: The `reasoning` argument, or None for a default arm.
         price_in_micro_per_mtok: Integer micro-dollars per million input tokens.
         price_out_micro_per_mtok: Integer micro-dollars per million output tokens.
+        primitive: For `jev-pair` arms, which question type is asked about each
+            (query, passage) pair — `"noul"` or `"score"`. None everywhere else.
+            It is a field rather than a name prefix so that dispatch never has to
+            parse an arm's display name, which is a report string.
     """
 
     name: str
     model: str
-    kind: Literal["jev", "chat"]
+    kind: Literal["jev", "jev-pair", "chat"]
     reasoning: dict | None
     price_in_micro_per_mtok: int
     price_out_micro_per_mtok: int
+    primitive: str | None = None
 
     @property
     def url(self) -> str:
         """The endpoint this arm posts to."""
-        return JEV_URL if self.kind == "jev" else CHAT_URL
+        return JEV_URL if self.kind.startswith("jev") else CHAT_URL
 
 
 ARMS: tuple[Arm, ...] = (
     # Jev is absent from /v1/models by design: a decisions model is not in the chat
     # catalogue. Its price is the one published on the model page. PROBE-RESULTS P1.
     Arm("jev", "typesafe/jev-1.13", "jev", None, 42_000, 0),
+    # The same model and the same price, asked in its other two documented
+    # grammars. They are separate arms rather than a flag because they cost
+    # different money and return different rankings, which is the thing under
+    # test: "Jev" is not one number, it is three encodings of one question.
+    Arm("jev-noul", "typesafe/jev-1.13", "jev-pair", None, 42_000, 0, "noul"),
+    Arm("jev-score", "typesafe/jev-1.13", "jev-pair", None, 42_000, 0, "score"),
     Arm("sonnet-5", "anthropic/claude-sonnet-5", "chat", None, 2000000, 10000000),
     Arm("opus-5", "anthropic/claude-opus-5", "chat", None, 5000000, 25000000),
     Arm("gpt-5.3-codex", "openai/gpt-5.3-codex", "chat", None, 1750000, 14000000),

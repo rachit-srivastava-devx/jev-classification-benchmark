@@ -1,4 +1,4 @@
-"""Build the reranking task set from two public corpora. Run once; commit the output.
+"""Build the reranking task set from three public corpora. Run once; commit the output.
 
 This is the only script in the project with a third-party dependency (pyarrow,
 to read HuggingFace's parquet). It is a build-time tool, not part of the
@@ -7,7 +7,7 @@ experiment can be re-run and audited without it.
 
     python scripts/fetch_rag_corpus.py
 
-Two corpora, deliberately different in kind:
+Three corpora, deliberately different in kind:
 
   BRIGHT (xlangai/BRIGHT) — reasoning-heavy retrieval. Real StackExchange posts
   as queries, several hundred words each, with several gold passages apiece.
@@ -15,6 +15,14 @@ Two corpora, deliberately different in kind:
 
   FiQA-2018 (BeIR/fiqa) — ordinary retrieval. Short real finance questions over
   57,638 real answer passages.
+
+  WANDS (wayfair/WANDS) — e-commerce product search. 480 real Wayfair queries
+  over 42,994 real products, and the only one of the three that is *completely*
+  judged: all 233,448 query-product pairs carry a label, so "a good passage
+  nobody happened to judge" cannot penalise a model here. Its `Partial` label is
+  treated as a negative on purpose — a partial match shares the query's words
+  and is still the wrong product, which is the hardest kind of distractor a
+  lexical retriever can hand over.
 
 Candidates come from BM25 over the real corpus, so they are the hard negatives a
 first-stage retriever actually returns. No query is dropped for being hard: the
@@ -44,10 +52,25 @@ FIQA_QRELS = HF + "BeIR/fiqa-qrels/resolve/refs%2Fconvert%2Fparquet/default/test
 #: symbolic reasoning, which is a different question from chunk selection.
 BRIGHT_DOMAINS = ("economics", "biology", "psychology")
 
+#: WANDS ships as three tab-separated files in the repository itself, not on a
+#: dataset hub, so it is pinned to a commit rather than read from `main`: a
+#: benchmark whose inputs can be edited under it is not reproducible. This is
+#: the repository's current head, 3b74dcf of 2022-01-18, and it has not moved
+#: since — the repository has two commits in total.
+WANDS = ("https://raw.githubusercontent.com/wayfair/WANDS/"
+         "3b74dcf4ba29ab8ff3e6a50b5b09fc627cb882b5/dataset/")
+
 DEPTH = 100          #: candidates retrieved per query
-PER_DOMAIN = 17      #: BRIGHT queries per domain
-FIQA_N = 50          #: FiQA queries
+PER_DOMAIN = 50      #: BRIGHT queries per domain
+FIQA_N = 100         #: FiQA queries
+WANDS_N = 100        #: WANDS queries
 PASSAGE_CHARS = 1200  #: hard cap per passage, so one long document cannot dominate
+
+#: A WANDS query with dozens of correct products is easy by construction: five
+#: slots and twenty-eight right answers is not a discrimination test. Keeping
+#: only the queries with few correct products is the "specially difficult" cut,
+#: and it is declared here as a number rather than applied by eye.
+WANDS_MAX_GOLD = 8
 
 
 def _read(url: str) -> list[dict]:
@@ -56,6 +79,7 @@ def _read(url: str) -> list[dict]:
 
 def _task(source, qid, query, cands, gold, index, corpus):
     ranked = [d for d, _ in cands]
+    reachable = gold.intersection(ranked)
     return {
         "source": source,
         "query_id": f"{source}:{qid}",
@@ -63,6 +87,19 @@ def _task(source, qid, query, cands, gold, index, corpus):
         "gold_ids": sorted(gold),
         "candidates": [{"id": d, "text": corpus[d][:PASSAGE_CHARS]} for d in ranked],
         "bm25_order": ranked,
+        # The difficulty stratum, decided here by a rule rather than later by
+        # eye. `hard` is the stratum where a reranker is the only thing that can
+        # help: the retriever did put a correct passage somewhere in the 100, and
+        # put none of them in the top 5. Queries the retriever already solved
+        # cannot show a reranker doing anything, and queries where it retrieved
+        # nothing correct cannot either — those are `easy` and `unreachable`.
+        # Every query is kept and the stratum is published, so nothing is
+        # selected away; splitting after the results are in is how a benchmark
+        # gets accused of picking its own sample, and rightly.
+        "stratum": ("unreachable" if not reachable
+                    else "hard" if not gold.intersection(ranked[:5])
+                    else "easy"),
+        "gold_reachable": len(reachable),
     }
 
 
@@ -115,9 +152,63 @@ def fiqa_tasks() -> list[dict]:
     return out
 
 
+def _wands_rows(name: str) -> list[dict]:
+    """WANDS files are tab-separated with embedded commas, so csv with an
+    explicit delimiter, not a naive split."""
+    import csv
+    import io
+    with fsspec.open(WANDS + name, "rb") as fh:
+        text = fh.read().decode("utf-8")
+    return list(csv.DictReader(io.StringIO(text), delimiter="\t"))
+
+
+def wands_tasks() -> list[dict]:
+    """E-commerce product search, fully judged.
+
+    A product's text is assembled from the fields a shopper actually reads —
+    name, class, category path, description, features — because ranking on the
+    name alone would make this a string-match task rather than a retrieval one.
+
+    Gold is `Exact` only. `Partial` is deliberately scored as wrong: WANDS
+    defines it as a product of the right general kind that is not what was
+    asked for, which is exactly the distractor BM25 ranks highly and exactly the
+    distinction a reranker is bought to make. Counting Partial as correct would
+    hand every model most of the score for free.
+    """
+    prods = _wands_rows("product.csv")
+    corpus = {}
+    for p in prods:
+        parts = [p["product_name"], p["product_class"], p["category hierarchy"],
+                 p["product_description"], p["product_features"]]
+        text = "\n".join(x for x in parts if x and x != "NULL").strip()
+        if text:
+            corpus[p["product_id"]] = text
+    index = BM25(corpus)
+
+    queries = {q["query_id"]: q["query"] for q in _wands_rows("query.csv")}
+    gold_by_q: dict[str, set[str]] = {}
+    for r in _wands_rows("label.csv"):
+        if r["label"] == "Exact" and r["product_id"] in corpus:
+            gold_by_q.setdefault(r["query_id"], set()).add(r["product_id"])
+    print(f"  wands: {len(corpus):,} products, {len(gold_by_q)} queries with an exact match")
+
+    out = []
+    for qid in sorted(gold_by_q, key=int):
+        gold = gold_by_q[qid]
+        if not 1 <= len(gold) <= WANDS_MAX_GOLD or qid not in queries:
+            continue          # too many correct answers to be a discrimination test
+        hits = index.search(queries[qid], k=DEPTH)
+        if len(hits) < DEPTH:
+            continue          # too few candidates to pose the same task to everyone
+        out.append(_task("wands", qid, queries[qid], hits, gold, index, corpus))
+        if len(out) >= WANDS_N:
+            break
+    return out
+
+
 def main() -> None:
     print("building reranking tasks (BM25 over the real corpora)")
-    tasks = bright_tasks() + fiqa_tasks()
+    tasks = bright_tasks() + fiqa_tasks() + wands_tasks()
     out = pathlib.Path(__file__).resolve().parents[1] / "data/rag/tasks.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"depth": DEPTH, "passage_chars": PASSAGE_CHARS,
@@ -129,8 +220,12 @@ def main() -> None:
         gold = sum(len(t["gold_ids"]) for t in rows) / len(rows)
         reach = sum(len(set(t["gold_ids"]) & set(t["bm25_order"])) / len(t["gold_ids"])
                     for t in rows) / len(rows)
+        strata = {s: sum(1 for r in rows if r["stratum"] == s)
+                  for s in ("hard", "easy", "unreachable")}
         print(f"  {src:20} {len(rows):3} queries  {gold:4.1f} gold/query  "
-              f"BM25 recall@{DEPTH} {reach * 100:5.1f}%")
+              f"BM25 recall@{DEPTH} {reach * 100:5.1f}%  "
+              f"hard {strata['hard']:3} easy {strata['easy']:3} "
+              f"unreachable {strata['unreachable']:3}")
 
 
 if __name__ == "__main__":

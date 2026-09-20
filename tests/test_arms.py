@@ -7,14 +7,33 @@ from jevdemo import arms
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "models.json"
 
 
-def test_twenty_arms_with_unique_names():
-    assert len(arms.ARMS) == 20
-    assert len({a.name for a in arms.ARMS}) == 20
+def test_twenty_two_arms_with_unique_names():
+    assert len(arms.ARMS) == 22
+    assert len({a.name for a in arms.ARMS}) == 22
 
 
-def test_exactly_one_jev_arm_and_nineteen_chat_arms():
-    assert [a.kind for a in arms.ARMS].count("jev") == 1
-    assert [a.kind for a in arms.ARMS].count("chat") == 19
+def test_three_jev_arms_and_nineteen_chat_arms():
+    """One Jev model, three encodings of the question, nineteen chat arms."""
+    kinds = [a.kind for a in arms.ARMS]
+    assert kinds.count("jev") == 1        # Choice: one call, all candidates
+    assert kinds.count("jev-pair") == 2   # Noul and Score: one call per candidate
+    assert kinds.count("chat") == 19
+    assert {a.model for a in arms.ARMS if a.kind.startswith("jev")} == {"typesafe/jev-1.13"}
+
+
+def test_every_pair_arm_names_a_primitive_and_no_other_arm_does():
+    """Dispatch reads `primitive`, so an arm missing it would build a Choice."""
+    for a in arms.ARMS:
+        if a.kind == "jev-pair":
+            assert a.primitive in {"noul", "score"}, a.name
+        else:
+            assert a.primitive is None, a.name
+
+
+def test_jev_arms_post_to_the_decisions_endpoint_and_chat_arms_do_not():
+    for a in arms.ARMS:
+        expected = arms.JEV_URL if a.kind.startswith("jev") else arms.CHAT_URL
+        assert a.url == expected, a.name
 
 
 def test_every_chat_model_resolves_against_the_captured_roster():

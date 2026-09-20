@@ -245,10 +245,13 @@ def test_bright_subsets_are_one_collection():
     assert len(subsets) == 3
 
 
-def test_the_shipped_roster_is_two_collections_over_four_topics():
+def test_the_shipped_roster_is_three_collections_over_five_topics():
+    # BRIGHT contributes three topic sets and one collection; FiQA and WANDS one
+    # each. The two counts are deliberately different numbers and the report
+    # prints both, so this test pins the pair rather than either alone.
     every = sorted(SOURCE_LABEL)
-    assert collections(every) == 2
-    assert len(every) == 4
+    assert collections(every) == 3
+    assert len(every) == 5
 
 
 def test_a_single_source_counts_as_one_of_each():
@@ -262,6 +265,7 @@ def test_a_single_source_counts_as_one_of_each():
 # HTML; these tests hold the line that every element also carries its paint as a
 # presentation attribute, which is the only thing the PDF reads.
 
+import pathlib  # noqa: E402
 import re  # noqa: E402
 
 from scripts.build_rag_report import chart  # noqa: E402
@@ -294,3 +298,294 @@ def test_the_jev_point_is_painted_with_the_accent():
     svg = chart(two_point_summary())
     jev = re.search(r"<circle class='pt jev' [^>]*>", svg)
     assert jev and "#1E6FFF" in jev.group(0), jev and jev.group(0)
+
+
+# --- the worked example must not be chosen after seeing the results ----------
+# The appendix walks one query end to end, and an appendix chosen because it
+# flattered the product is worse than no appendix. The pick is therefore made
+# from queries that are hard, reachable and answered by every model, and from
+# that set by a seeded shuffle — never by score.
+
+import re  # noqa: E402
+
+from scripts.build_rag_report import (  # noqa: E402
+    EXAMPLE_CHARS, JEV_ARMS, STRATA, _encoding_tokens, _example_task,
+    _gold_table, _picks_table, encoding_table, strata_table,
+)
+
+
+def _task(qid, stratum="hard", reachable=2, gold=("g1", "g2")):
+    return {
+        "query_id": qid, "source": "fiqa", "query": "q " + qid,
+        "gold_ids": list(gold), "stratum": stratum, "gold_reachable": reachable,
+        "candidates": [{"id": "g1", "text": "gold one " * 40},
+                       {"id": "g2", "text": "gold two " * 40},
+                       {"id": "c3", "text": "filler " * 40}],
+    }
+
+
+def _sum(*arms):
+    return {a: {"arm": a, "recall@5": 0.5, "cost_micro": 1} for a in arms}
+
+
+def _row(arm, qid, ranking=("g1", "c3"), failure=None, stratum="hard"):
+    r = {"arm": arm, "query_id": qid, "source": "fiqa", "depth": 3,
+         "elapsed_ms": 1.0, "input_tokens": 100, "output_tokens": 0,
+         "reasoning_tokens": 0, "reported_cost_micro": 10, "dropped_ids": 0,
+         "failure": failure, "detail": "", "ranking": list(ranking),
+         "gold_in_view": 2, "gold_total": 2, "subcalls": 1,
+         "subcall_failures": 0, "stratum": stratum, "mrr": 0.5}
+    for k in (1, 3, 5, 10):
+        r[f"recall@{k}"] = None if failure else 0.5
+        r[f"reachable@{k}"] = None if failure else 0.5
+        r[f"ndcg@{k}"] = None if failure else 0.5
+    return r
+
+
+def test_the_example_query_is_hard_reachable_and_answered_by_everyone():
+    tasks = {"tasks": [_task("easy1", stratum="easy"),
+                       _task("thin", reachable=1),
+                       _task("good")]}
+    rows = [_row("jev", "good"), _row("sonnet-5", "good"),
+            _row("jev", "easy1"), _row("sonnet-5", "easy1"),
+            _row("jev", "thin"), _row("sonnet-5", "thin")]
+    assert _example_task(tasks, rows)["query_id"] == "good"
+
+
+def test_a_query_one_model_failed_is_not_eligible():
+    # sonnet-5 answered q2 and failed q1, so it has an opinion and q1 is the one
+    # query it cannot speak to. The example must be q2. Both queries are equally
+    # hard and equally reachable, so nothing but the failure separates them.
+    tasks = {"tasks": [_task("q1"), _task("q2")]}
+    rows = [_row("jev", "q1"), _row("jev", "q2"),
+            _row("sonnet-5", "q1", failure="http_error"), _row("sonnet-5", "q2")]
+    assert _example_task(tasks, rows)["query_id"] == "q2"
+
+
+def test_no_eligible_query_is_an_error_not_a_quiet_fallback():
+    # Every query failed for somebody who succeeded elsewhere. There is no
+    # honest example to show, and the appendix must stop rather than quietly
+    # pick one the reader would assume was clean.
+    tasks = {"tasks": [_task("q1"), _task("q2")]}
+    rows = [_row("jev", "q1"), _row("jev", "q2"),
+            _row("sonnet-5", "q1", failure="http_error"),
+            _row("sonnet-5", "q2", failure="http_error"),
+            _row("sonnet-5", "q3")]
+    with pytest.raises(ValueError):
+        _example_task(tasks, rows)
+
+
+def test_the_example_pick_is_stable_across_runs():
+    tasks = {"tasks": [_task(f"q{i}") for i in range(12)]}
+    rows = [_row(a, f"q{i}") for i in range(12) for a in ("jev", "sonnet-5")]
+    first = _example_task(tasks, rows)["query_id"]
+    assert all(_example_task(tasks, rows)["query_id"] == first for _ in range(3))
+
+
+def test_the_example_pick_does_not_follow_the_best_score():
+    # Same eligible set, opposite scores. If the pick tracked the numbers these
+    # two calls would disagree.
+    tasks = {"tasks": [_task(f"q{i}") for i in range(8)]}
+    good = [_row(a, f"q{i}") for i in range(8) for a in ("jev", "sonnet-5")]
+    flipped = [dict(r, **{"recall@5": 1.0 - r["recall@5"]}) for r in good]
+    assert (_example_task(tasks, good)["query_id"]
+            == _example_task(tasks, flipped)["query_id"])
+
+
+# --- the picks table is laid out down the page, not across it ----------------
+# Five chunk ids as five columns overflowed the A4 text block and clipped the
+# last two silently, in a table whose entire claim is that nothing was hidden.
+
+def test_every_pick_survives_into_one_cell_per_model():
+    task = _task("good")
+    rows = [_row("jev", "good", ranking=("g1", "c3", "g2"))]
+    summary = _sum("jev")
+    html = _picks_table(task, rows, summary, {"g1", "g2"},
+                        {"g1": 1, "g2": 2, "c3": 3})
+    assert html.count("<td") == 3 * html.count("<tr><td")   # 3 columns, never 7
+    for cid in ("g1", "c3", "g2"):
+        assert cid in html
+
+
+def test_a_model_that_failed_the_example_query_says_so():
+    task = _task("good")
+    rows = [_row("jev", "good", failure="http_error")]
+    html = _picks_table(task, rows, _sum("jev"), {"g1"}, {"g1": 1})
+    assert "no answer" in html and "http_error" in html
+
+
+def test_gold_outside_the_candidate_list_is_not_listed_as_missed():
+    task = _task("good", gold=("g1", "never-retrieved"))
+    rows = [_row("jev", "good", ranking=("g1",))]
+    html = _gold_table(task, task["candidates"], rows, _sum("jev"),
+                       set(task["gold_ids"]), {"g1": 1})
+    assert "g1" in html and "never-retrieved" not in html
+
+
+def test_a_query_with_no_reachable_gold_says_so_instead_of_an_empty_table():
+    task = _task("good", gold=("nowhere",))
+    html = _gold_table(task, task["candidates"], [], {}, {"nowhere"}, {})
+    assert "<table" not in html and "nothing for any model to find" in html
+
+
+# --- the difficulty split is a read of a stored field, not a new rule --------
+
+def test_every_stratum_the_fetcher_writes_has_a_column():
+    # Read as text rather than imported: the fetcher pulls in fsspec at module
+    # scope, and a test of a naming contract must not need the download stack.
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "scripts" / "fetch_rag_corpus.py").read_text()
+    body = src[src.index('"stratum":'):src.index('"gold_reachable":')]
+    written = set(re.findall(r'"(hard|easy|unreachable)"', body))
+    assert written == {k for k, _ in STRATA}
+
+
+def test_strata_table_counts_questions_and_scored_answers_separately():
+    rows = [_row("jev", "a", stratum="hard"),
+            _row("jev", "b", stratum="hard", failure="http_error"),
+            _row("jev", "c", stratum="easy")]
+    html = strata_table({"rows": rows, "summary": _sum("jev")})
+    assert "2 questions" in html      # both hard queries counted
+    assert "1 scored" in html         # only one of them produced a number
+
+
+# --- "Jev" is three encodings, and the sentence under the table says which ---
+
+def test_the_encoding_sentence_names_both_the_best_and_the_cheapest():
+    summary = {
+        "jev": {"recall@5": 0.20, "cost_per_1k_micro": 1000},
+        "jev-noul": {"recall@5": 0.34, "cost_per_1k_micro": 5000},
+        "jev-score": {"recall@5": 0.30, "cost_per_1k_micro": 5000},
+    }
+    out = _encoding_tokens(summary, [])["encoding_finding"]
+    assert "Noul" in out and "Choice" in out
+    assert "14.0%" in out and "5×" in out
+    assert "not the same one" in out
+
+
+def test_one_encoding_alone_is_reported_as_nothing_to_compare():
+    out = _encoding_tokens({"jev": {"recall@5": 0.2, "cost_per_1k_micro": 1}}, [])
+    assert "nothing to compare" in out["encoding_finding"]
+
+
+def test_the_encoding_table_prints_calls_per_question_not_total_calls():
+    rows = [dict(_row("jev-noul", f"q{i}"), subcalls=100, input_tokens=1000)
+            for i in range(3)]
+    html = encoding_table({
+        "rows": rows,
+        "summary": {"jev-noul": {"arm": "jev-noul", "recall@5": 0.3,
+                                 "cost_micro": 1,
+                                 "reachable@5": 0.4, "cost_per_1k_micro": 1000}}})
+    assert ">100<" in html          # 100 per question, not 300
+    assert "1,000" in html          # 1000 input tokens per question, not 3000
+
+
+def test_the_three_jev_arms_are_the_ones_the_runner_ships():
+    from jevdemo.arms import ARMS
+    assert JEV_ARMS == [a.name for a in ARMS if a.kind.startswith("jev")]
+
+
+def test_chunk_preview_is_short_enough_that_a_hundred_rows_fit():
+    assert 80 <= EXAMPLE_CHARS <= 160
+
+
+def test_a_model_that_failed_every_query_does_not_block_the_example():
+    # A key that ran out of budget mid-run leaves an arm with 350 failures and no
+    # successes. Demanding a result row from it would make every query ineligible
+    # and the appendix impossible to build, while proving nothing about any query:
+    # the arm has no opinion to agree or disagree with. An arm that failed only
+    # *some* queries is a different case and is still pinned, by the test above.
+    tasks = {"tasks": [_task("q1"), _task("q2")]}
+    rows = [_row("jev", "q1"), _row("jev", "q2"),
+            _row("jev-noul", "q1"), _row("jev-noul", "q2"),
+            _row("broke", "q1", failure="http_error"),
+            _row("broke", "q2", failure="http_error")]
+    assert _example_task(tasks, rows)["query_id"] in {"q1", "q2"}
+
+
+# --- The common-denominator table -------------------------------------------
+#
+# The main leaderboard scores each arm over the questions it personally
+# answered. That is a fair answer to "what will I get", and an unfair answer to
+# "which is better", because two arms with different failure patterns then sit
+# different exams. These guard the section that puts them on one exam.
+
+def _report():
+    import importlib.util
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "build_rag_report", root / "scripts" / "build_rag_report.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_common_subset_is_only_the_questions_everyone_answered():
+    """If an arm's failures leak into the shared set, the whole point of the
+    section is lost: it would be the same unequal comparison with a new title."""
+    m = _report()
+    rows = ([row("a", f"q{i}", 1.0) for i in range(3)]
+            + [row("b", "q0", 0.0), row("b", "q1", 1.0),
+               row("b", "q2", 0.0, failure="http_error")])
+    common, scores = m._common_subset(rows, m.summarise(rows, SEED))
+    assert common == ["q0", "q1"]
+    assert dict(scores)["a"] == 1.0
+    assert dict(scores)["b"] == 0.5
+
+
+def test_an_arm_that_answered_nothing_does_not_empty_the_shared_set():
+    """A model that failed every call carries no information about any question.
+    Intersecting its empty set would silently delete the whole section."""
+    m = _report()
+    rows = ([row("a", f"q{i}", 1.0) for i in range(2)]
+            + [row("b", f"q{i}", 1.0) for i in range(2)]
+            + [row("dead", f"q{i}", 0.0, failure="http_error") for i in range(2)])
+    common, scores = m._common_subset(rows, m.summarise(rows, SEED))
+    assert common == ["q0", "q1"]
+    assert "dead" not in dict(scores)
+
+
+def test_movement_is_counted_against_the_same_arms_not_the_full_roster():
+    """An arm missing from the shared set shifts every rank below it. Counting
+    that as models 'changing place' would manufacture a finding out of nothing."""
+    m = _report()
+    # The scoreable arms keep their order; only `sonnet-5` is absent. It sorts
+    # above the baseline in the main table, so dropping it shifts the baseline
+    # up one rank -- the exact way this miscounted before.
+    rows = ([row("jev-score", "q0", 1.0), row("jev-score", "q1", 1.0)]
+            + [row("jev-noul", "q0", 0.0), row("jev-noul", "q1", 1.0)]
+            + [row("sonnet-5", "q0", 0.0, failure="http_error"),
+               row("sonnet-5", "q1", 0.0, failure="http_error")]
+            + [row("bm25-baseline", "q0", 0.0, cost=0),
+               row("bm25-baseline", "q1", 0.0, cost=0)])
+    out = m._common_subset_tokens(rows, m.summarise(rows, SEED))
+    assert "The order does not change" in out["common_finding"]
+
+
+def test_the_spread_sentence_ignores_the_free_baseline():
+    """The baseline is the thing being beaten, not a competitor. Including it
+    would report the field as far wider apart than the models actually are."""
+    m = _report()
+    rows = ([row("jev-score", "q0", 1.0), row("jev-score", "q1", 1.0)]
+            + [row("jev-noul", "q0", 1.0), row("jev-noul", "q1", 0.0)]
+            + [row("bm25-baseline", "q0", 0.0, cost=0),
+               row("bm25-baseline", "q1", 0.0, cost=0)])
+    out = m._common_subset_tokens(rows, m.summarise(rows, SEED))
+    # a=100%, b=50%, baseline=0%. The models are 50 points apart, not 100.
+    assert "50.0 percentage points" in out["common_finding"]
+
+
+def test_jev_headline_never_quotes_a_score_the_table_withholds():
+    """Printing Choice's number in the opening line while the leaderboard calls
+    it not comparable is the contradiction that made this report untrustworthy."""
+    m = _report()
+    rows = ([row("jev", "q0", 1.0)]
+            + [row("jev", f"q{i}", 0.0, failure="http_error") for i in range(1, 10)]
+            + [row("jev-score", f"q{i}", 0.4) for i in range(10)]
+            + [row("jev-noul", f"q{i}", 0.4) for i in range(10)])
+    text = m.jev_headline(m.summarise(rows, SEED))
+    assert "100.0%" not in text          # Choice's score over its one answer
+    assert "answered only 1 of 10" in text

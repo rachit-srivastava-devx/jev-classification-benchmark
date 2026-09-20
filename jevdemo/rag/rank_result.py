@@ -28,6 +28,14 @@ class RankResult:
     dropped: int
     failure: str | None
     detail: str
+    #: How many HTTP requests this one result consumed, and how many of them
+    #: failed. One for every arm that answers a query in a single call; 100 for
+    #: the per-passage Jev primitives. Defaulted so the single-call constructors
+    #: elsewhere keep working, and carried because "$0.84 per thousand queries"
+    #: and "84 cents for a hundred thousand requests" are different sentences and
+    #: the report has to be able to say which one it means.
+    subcalls: int = 1
+    subcall_failures: int = 0
 
 
 def failed(kind: str, detail: str = "") -> RankResult:

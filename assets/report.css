@@ -252,3 +252,80 @@ svg.chart .pt-label.jev { fill: #1E6FFF; font-weight: 500; }
 
 table.headline td:nth-child(4) { font-weight: 500; }
 table.headline tr.unresolved td { color: var(--muted); }
+
+/* --- the process diagram ----------------------------------------------------
+   The pipeline figure is a 31-component LLD, not an illustration: its sublabels
+   carry the actual parameters (1,200 chars, top-100, 10,000 resamples). Fitted
+   to an A4 text column its type projects to roughly 3pt and stops being
+   readable, so it gets a page of its own, sized to the figure rather than the
+   figure squeezed to the page. WeasyPrint 69 supports named pages; verified by
+   rendering and reading the MediaBox back (1020 x 1332 pt on the test case). */
+
+@page diagram {
+  size: 400mm 560mm;
+  margin: 12mm;
+}
+
+figure.pipeline {
+  margin: 32px 0 40px;
+  padding: 0;
+}
+
+figure.pipeline img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--rule);
+}
+
+figure.pipeline figcaption {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin-top: 10px;
+}
+
+@media print {
+  figure.pipeline {
+    page: diagram;
+    break-before: page;
+    break-after: page;
+    margin: 0;
+  }
+  figure.pipeline figcaption { font-size: 9pt; margin-top: 6mm; }
+}
+
+/* --- the worked example -----------------------------------------------------
+   A hundred chunks is a lot of rows, and the point of printing all of them is
+   that nothing was hidden. So it is set small and dense rather than paginated
+   into an unreadable ribbon, and the judged-correct rows are marked by a rule
+   and a star, never by a fill. */
+
+table.chunks td, table.picks td { vertical-align: top; }
+table.chunks { font-size: 12px; }
+table.chunks td:nth-child(3) { color: var(--muted); }
+table.chunks tr.gold td,
+table.picks td.gold { color: var(--ink); font-weight: 500; }
+table.chunks tr.gold td:first-child { border-left: 2px solid var(--accent); }
+table.picks { font-size: 12px; }
+.dim { color: var(--muted-2); }
+
+@media print {
+  table.chunks { font-size: 6.4pt; break-inside: auto; }
+  table.picks { font-size: 7pt; break-inside: avoid; }
+  table.chunks tr, table.picks tr { break-inside: avoid; }
+}
+
+table.picks .pick { line-height: 1.5; }
+table.picks .pick.gold { color: var(--ink); font-weight: 500; }
+
+@media print {
+  table.chunks td { padding: 2.5pt 6pt; line-height: 1.35; }
+  table.picks td { padding: 4pt 8pt; }
+}
+
+table.goldset { font-size: 12px; }
+table.goldset td:nth-child(3) { color: var(--muted); }
+
+@media print { table.goldset { font-size: 7.4pt; } }

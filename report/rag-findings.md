@@ -7,10 +7,13 @@ EYEBROW DevX Labs · Internal · {{n_queries}} questions · {{n_calls}} model ca
 In a RAG system you hand a model a pile of text chunks and ask it to pick the ones
 that answer the question. We tested who picks best, and what each picker costs.
 
-**{{best_model}} picked best, finding {{best_recall}} of the right chunks.** Jev found
-{{jev_recall}} at {{jev_cost_1k}} per thousand questions — {{cheapest_other_multiple}}×
-cheaper than the next cheapest model in the test and {{dearest_multiple}}× cheaper than
-{{dearest_model}}.
+**{{best_model}} scored highest, finding {{best_recall}} of the right chunks — but no
+model is reliably best.** The top scores sit inside each other's error bars, and when
+every model is scored on one identical set of questions the order changes. The result
+that survives both ways of counting is that every model beats keyword search by a
+similar margin, so the thing to choose on is price, not accuracy.
+
+{{jev_headline}}
 
 {{baseline_finding}}
 
@@ -20,6 +23,16 @@ never shown. Every score below sits under that ceiling, and the ceiling is the s
 biggest lever in the system — bigger than the choice of model.
 
 {{HEADLINE_TABLE}}
+
+
+## How the numbers were made
+
+Before any result: the figure below is the whole experiment, start to finish. Read it
+once and every number in this report is traceable. Nothing on the left-hand side of
+**tasks.json** involves a model — the questions, the chunks and the right answers were
+fixed, written to disk and hashed before the first model was called.
+
+{{PIPELINE_FIGURE}}
 
 
 ## 1 · What we tested
@@ -75,6 +88,18 @@ to separate.
 
 ## 3 · The analysis
 
+### "Jev" is not one number
+
+Jev takes a question in one of three grammars, and which one you pick changes the answer,
+the bill and the failure rate. We ran all three against the identical questions and chunks.
+Same model id in every request; only the shape of the question differs.
+
+{{ENCODING_TABLE}}
+
+{{encoding_finding}}
+
+### The two collections
+
 {{BY_SOURCE_TABLE}}
 
 **The two collections are different problems.** FiQA scores are several times higher than
@@ -82,10 +107,45 @@ BRIGHT scores for every model, including the free baseline. BRIGHT was designed 
 keyword search, and it does: the keyword step hands over very little that is correct, so
 there is little for any picker to find.
 
+**Most of the average is decided before any model sees anything.** Every question falls
+into one of three slices, decided by the keyword search alone and recorded before the run:
+the correct chunk is already in the keyword top 5 (nothing to fix), it is somewhere in the
+hundred but not the top 5 (the only slice where a picker can earn its money), or it is not
+in the hundred at all (nobody can win). Split that way:
+
+{{STRATA_TABLE}}
+
+**Read the first column.** It is the only one where a picker can change the outcome. The
+second is the score a model gets for leaving things alone, and the third is zero for
+everyone by construction — no ranking of a hundred chunks can surface a chunk that is not
+among them. An average taken across all three mostly measures how often the keyword search
+had already done the job.
+
+## One exam for everyone
+
+The main table scores each model over the questions it personally answered. Models that
+failed on some questions are therefore not sitting the same exam, and a ranking built that
+way can be an artefact of who dropped which questions. So here is the same field scored
+over only the {{common_n}} questions that every model answered.
+
+{{COMMON_SUBSET_TABLE}}
+
+{{common_finding}}
+
 **Where the models help is not where you would guess.** The lift each model gives over
 the free keyword baseline, measured question by question on the same questions:
 
 {{LIFT_TABLE}}
+
+**Every model appears in this table, including the two whose scores the main table
+withholds.** That is deliberate, and it is a different rule rather than a softer one. A
+raw score over a partial set of questions is not comparable to a raw score over all of
+them, because the two are averages of different exams. A lift is: it is measured question
+by question against the same keyword baseline on the same questions that model answered,
+so a model that answered fewer questions is still being compared against exactly its own
+set. What a partial lift cannot tell you is whether that model would hold the same margin
+on the questions it failed, which is why a low-coverage model is shown here and still
+withheld from the headline.
 
 A "tie" verdict means the test cannot tell that model apart from doing nothing. It does
 not mean the model is bad. It means **this sample of {{n_queries}} questions is not
@@ -107,11 +167,20 @@ because it charges nothing for what it writes back. A reranking job is nearly al
 reading: {{depth}} chunks in, a short list out. That is the single reason the gap is this
 wide, and it would narrow on a job that produced long output.
 
-**The premium model could not be run at this size.** {{dearest_model}} was the dearest
-model we could afford across all {{n_queries}} questions. Running sonnet-5 over the same
-{{depth}} chunks would have cost {{sonnet_d100_projected}} — more than this entire
-experiment. That is a real constraint, not a rhetorical one, and it is why the premium
-comparison below was run on a shorter list.
+{{chart_omissions}}
+
+**The premium model produced nothing at this size, and the reason is not the model.**
+sonnet-5 was in the roster and was called on all {{n_queries}} questions. Every call came
+back `HTTP 403: Key limit exceeded`: the API key used for this run carries its own spending
+cap, separate from the account balance, and the run crossed it at {{total_spend}} while working
+through the cheaper models. So sonnet-5 spent nothing, answered nothing, and appears in
+Appendix C with {{n_queries}} failures and no score. We are not reporting a number for it
+at this depth, because there is no number to report. Its projected cost had it run —
+{{sonnet_d100_projected}} per thousand questions, scaled from its own measured price on
+the 20-chunk run — is arithmetic on a measurement, not a measurement.
+
+**{{dearest_model}} was the dearest model whose answers we can actually score.**
+{{dearest_unscorable}}
 
 ### The same test with only 20 chunks
 
@@ -150,26 +219,92 @@ equally.
 prompt. A different prompt, or a purpose-built reranking model, could do better. We did
 not tune per model, because tuning one and not the others is how benchmarks get rigged.
 
-**We probably asked Jev the wrong way, and that works against Jev.** Jev offers three
-ways to ask a question: *choice* (pick one from a list), *score* (rate it on a scale) and
-*noul* (is this true?). We used **choice**, with all {{depth}} chunks as the options in a
-single question — so the chunks compete for one pool of probability. Since publishing,
-we checked what other people building rerankers on Jev actually do, and neither of the two
-public ones does it our way: one asks a separate *noul* question per chunk — "is this
-chunk relevant?" — and sorts by the answer; the other uses a *score* rubric, one chunk at
-a time. Both give each chunk an independent judgement instead of making them compete.
-That is the shape the protocol is documented for.
+**Jev's Choice encoding has a size limit, and we hit it.** Choice puts all
+{{depth}} chunks into one request, and the endpoint refuses a request whose input passes
+about 32,768 tokens with `max_tokens_exceeded`. That number is measured, not guessed: the
+largest Choice request that ever succeeded here carried 32,850 input tokens, the 99th
+percentile of successful requests is 32,779, and nothing above that returned an answer.
+85 of 350 questions crossed the line — 84 of them from the shopping corpus, whose product
+descriptions are long. Counting characters instead of tokens does not predict it: the
+biggest request that succeeded held 119,182 characters and the smallest that failed held
+106,391, because text packs into tokens at anywhere from 2.9 to 4.2 characters depending
+on the corpus. The per-chunk encodings never hit it, because each of their calls carries
+one chunk. If you plan to rerank 100 long chunks in a single call, this is the constraint
+to design around.
 
-This was an encoding mistake, not a fault in the product. It ran correctly — every call
-returned a full set of scores, none were dropped, and none hit the size limit — but the
-number it produced is **most likely a floor for Jev rather than its best**. Jev already
-came first on accuracy here while being the cheapest, so the mistake did not change who
-won; it may have understated by how much. Re-running with *noul* would cost about $0.09
-and is the first thing to do if this test is repeated.
+**Every result here is one model asked three ways, not three products.** Section 3 breaks
+that out. Treat "Jev scores X" as meaningless without the encoding attached.
 
 **Cost is what the provider billed us**, read back from each call, not estimated from a
 price list.
 
+
+## 6 · Why you should believe this
+
+Benchmarks published by the people who ran them get the same seven objections every
+time. Here is each one, and what in this run answers it.
+
+**"You picked the questions that made your model look good."** Every question was chosen
+and written to disk before any model was called. The selection rule is mechanical: {{selection_rule}}. Nothing was dropped after a result came back. All {{n_queries}} questions are
+reported, including the ones every model failed.
+
+**"You only show the questions your model wins."** The report is the full set. Section 3
+splits it by corpus and by difficulty, so a model that wins only on the easy third is
+visible as exactly that. The hardest slice — questions where the keyword search put no
+correct chunk in the first five — is reported separately, not averaged away.
+
+**"These datasets are in the models' training data."** Very probably, and we cannot rule
+it out. Three things bound the damage. The task is not recall of an answer: it is ranking
+a fixed list of chunks that we assembled, in an order we produced. Memorisation would help
+every chat model here, and the cheap chat models are not the ones winning. And if
+memorisation were driving the scores, the hard slice would not collapse the way it does
+for every model at once. We state this as a limitation, not as a solved problem.
+
+**"Different harnesses give different numbers."** There is one harness. Every model gets
+the same questions, the same chunks, in the same order, through the same code path, with
+the same tie-break rule and the same parser. The only thing that differs is the model name
+in the request. The request builder is one function per protocol and both are in the
+repository.
+
+**"The costs are your estimate."** They are not. Every cost in this report is the number
+the provider itself returned in the `usage` block of that call, summed. A call that came
+back without a usage block is a failure, not a free call, and is counted as one.
+
+**"There's no baseline."** The keyword search is in every table, at zero cost. It is a
+real floor: a model that does not beat it is worse than nothing.
+
+**"You report a single number."** Every score carries a bootstrap interval, and every
+model-to-model comparison is paired over the same questions. Where two intervals overlap
+we say tie, not winner.
+
+### Measured against how this kind of test is normally published
+
+Before writing this up we read how other people publish reranking benchmarks: vendor
+launch posts from Voyage AI and Jina, independent comparisons from Agentset, LlamaIndex,
+Mixpeek and ZeroEntropy, and the BEIR/MIRACL family of papers they cite. Eighteen posts
+found, seven read end to end. That is the denominator for every count below.
+
+| Practice | How often the seven do it | Here |
+| --- | --- | --- |
+| Publish a runnable harness, not just a table | 2 of 7 | Yes — `scripts/run_rag.py`, one command |
+| Name the public datasets used | 4 of 7 | Yes — BRIGHT, FiQA, WANDS, with row ids |
+| Break results down per corpus, not one blended score | 2 of 7 | Yes — per corpus and per difficulty |
+| Report cost and latency together | 2 of 7 | Yes — cost as billed, latency as p50 and p95 |
+| Give confidence intervals or a significance test | 0 of 7 | Yes — bootstrap intervals, paired |
+| Have a limitations section at all | 0 of 7 | Yes — section 5 |
+| State the retrieval ceiling the reranker cannot beat | 0 of 7 | Yes — the impossible slice, counted |
+| Show their own preferred option losing | 2 of 7 | Yes — Choice loses to Noul, below |
+
+The two most common holes in published reranking benchmarks are the two that matter most
+for a buying decision: no error bars, so a one-point win reads the same as a twenty-point
+win, and no statement of what the keyword search never surfaced, so the reranker gets
+blamed or credited for the retriever's work. Both are closed here, and closing them is
+what produced this report's least flattering numbers.
+
+**What would falsify this.** Run `scripts/run_rag.py` against the same `tasks.json` and
+get materially different recall. The tasks file, the results file with every per-question
+row, and both scripts are in the repository. Nothing in this report is derived from a
+number that is not in that results file.
 
 ## Appendix A · The protocol in full
 
@@ -228,3 +363,17 @@ Comparisons between two models are **paired**: both answered the same questions,
 difference is taken question by question before resampling. Unpaired, the variation
 between easy and hard questions would swamp every real difference and the whole grid
 would read as ties.
+
+## Appendix E · One question, all the way through
+
+Everything above is an average. This is the whole of a single question: the exact request
+that went over the wire, every chunk the model was shown, and what each model picked out
+of that pile.
+
+The question was chosen by a seeded shuffle over the queries that are hard, have at least
+two correct chunks inside the hundred, and were answered by every model that answered
+anything at all — not by looking
+at the results and picking a flattering one. Change the seed and you get a different
+question; the code that picks it is in `scripts/build_rag_report.py`.
+
+{{WORKED_EXAMPLE}}

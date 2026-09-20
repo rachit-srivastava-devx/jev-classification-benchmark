@@ -11,6 +11,7 @@ figure cannot drift out of date by being typed into a sentence.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import sys
@@ -18,6 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from jevdemo.arms import by_name
+from jevdemo.rag import jev_rank
 from jevdemo.rag.corpus import load_tasks
 from jevdemo.rag.aggregate import align, summarise
 from jevdemo.rag.rank_stats import paired_difference, verdict
@@ -30,7 +33,9 @@ SEED = 20260920
 #: a reader has to be able to go and price the thing we measured.
 PRETTY = {
     "bm25-baseline": "BM25 only (no model)",
-    "jev": "Jev (TypeSafe)",
+    "jev": "Jev \u00b7 Choice (all chunks at once)",
+    "jev-noul": "Jev \u00b7 Noul (per passage)",
+    "jev-score": "Jev \u00b7 Score (per passage)",
     "glm-5.3-flash-low": "glm-5.3-flash",
     "deepseek-v4.1-flash-low": "deepseek-v4.1-flash",
     "qwen3.8-flash-low": "qwen3.8-flash",
@@ -43,6 +48,7 @@ SOURCE_LABEL = {
     "bright-economics": "BRIGHT economics",
     "bright-psychology": "BRIGHT psychology",
     "fiqa": "FiQA finance",
+    "wands": "WANDS shopping",
 }
 
 
@@ -98,13 +104,36 @@ def tokens(res: dict, summary: dict, tasks: dict, res20: dict | None) -> dict[st
         "base_recall": pct(base["recall@5"]) if base else "—",
         "ceiling": pct(_ceiling(rows)),
         "gold_per_query": f"{sum(len(t['gold_ids']) for t in tasks['tasks']) / len(tasks['tasks']):.1f}",
+        # Read off the fetch script's own constants rather than retyped, so the
+        # sentence that claims the sample was mechanical cannot drift from the
+        # code that made it.
+        "selection_rule": _selection_rule(),
     }
     out.update(_lift_tokens(summary, rows))
+    out.update(_encoding_tokens(summary, rows))
     out.update(_cost_tokens(ranked, jev))
     out.update(_depth_tokens(res20, summary))
     out.update(_failure_tokens(summary, rows))
     out["chart_span"] = chart_span(summary)
+    out["chart_omissions"] = chart_omissions(summary)
+    out["jev_headline"] = jev_headline(summary)
+    out.update(_common_subset_tokens(res["rows"], summary))
+    out["dearest_unscorable"] = _dearest_unscorable(summary)
     return out
+
+
+def _selection_rule() -> str:
+    """The sampling rule, quoted from the constants that actually ran it.
+
+    There is no random sampling and so no seed to choose: queries are taken in
+    sorted id order and the first N kept. A seed is one more knob a reader has to
+    take on trust, and this rule needs none.
+    """
+    import scripts.fetch_rag_corpus as f
+    return (f"take every judged query in each corpus in sorted id order, keep the first "
+            f"{f.PER_DOMAIN} per BRIGHT domain, {f.FIQA_N} from FiQA and {f.WANDS_N} from "
+            f"WANDS, retrieve the top {f.DEPTH} chunks for each with BM25, and freeze the "
+            f"result to disk \u2014 no random sampling, no seed")
 
 
 def _ceiling(rows: list[dict]) -> float:
@@ -122,11 +151,20 @@ def _lift_tokens(summary: dict, rows: list[dict]) -> dict[str, str]:
     out: dict[str, str] = {}
     rng = random.Random(SEED)
     beat = 0
+    # A model with no paired questions at all was never measured against the
+    # baseline and cannot be counted on either side of it. sonnet-5 in this run
+    # is the case that forced the distinction: its key hit a spending limit and
+    # every call was refused, so it neither beat the baseline nor "cost money and
+    # changed nothing" — it did not run. Counting it in the denominator would put
+    # a model in a failure bucket it never reached.
+    unmeasured = []
     for arm in summary:
         if arm == "bm25-baseline":
             continue
         xs, ys = align(rows, arm, "bm25-baseline", "recall@5")
         interval = paired_difference(xs, ys, rng) if xs else None
+        if not xs:
+            unmeasured.append(arm)
         slug = arm.replace(".", "_").replace("-", "_")
         out[f"{slug}_lift"] = pct(None if not interval else (sum(xs) - sum(ys)) / len(xs))
         out[f"{slug}_lift_lo"] = pct(interval[0]) if interval else "—"
@@ -134,7 +172,8 @@ def _lift_tokens(summary: dict, rows: list[dict]) -> dict[str, str]:
         out[f"{slug}_verdict"] = verdict(interval)
         if verdict(interval) == "better":
             beat += 1
-    n_models = len(summary) - 1
+    n_models = len(summary) - 1 - len(unmeasured)
+    out["models_unmeasured"] = str(len(unmeasured))
     out["models_beating_bm25"] = str(beat)
     out["models_not_beating_bm25"] = str(n_models - beat)
 
@@ -154,7 +193,12 @@ def _lift_tokens(summary: dict, rows: list[dict]) -> dict[str, str]:
             f"order, by between {min(lifts):.1f} and {max(lifts):.1f} percentage "
             f"points \u2014 a spread of {spread:.1f} points across the whole field. "
             f"So the reranking step is worth paying for, but *which* model does it is "
-            f"not something this test can tell apart. What separates them is price.")
+            f"not something this test can tell apart. What separates them is price."
+            + (f" {len(unmeasured)} model{'s' if len(unmeasured) > 1 else ''} "
+               f"({', '.join(PRETTY.get(a, a) for a in unmeasured)}) returned no "
+               f"scoreable answer at all and "
+               f"{'are' if len(unmeasured) > 1 else 'is'} excluded from that count."
+               if unmeasured else ""))
     elif beat == 0:
         out["baseline_finding"] = (
             f"**No model beat the free option by an amount this test can confirm.** "
@@ -166,7 +210,11 @@ def _lift_tokens(summary: dict, rows: list[dict]) -> dict[str, str]:
             f"**Only {beat} of the {n_models} models beat the free option.** A plain "
             f"keyword search already orders the chunks before any model is called. "
             f"{beat} improved on that order by an amount this test can confirm; the "
-            f"other {n_models - beat} cost money and changed nothing we can prove.")
+            f"other {n_models - beat} cost money and changed nothing we can prove."
+            + (f" A further {len(unmeasured)} "
+               f"({', '.join(PRETTY.get(a, a) for a in unmeasured)}) returned no "
+               f"scoreable answer at all and is counted on neither side."
+               if unmeasured else ""))
     return out
 
 
@@ -586,16 +634,565 @@ def chart_span(summary: dict) -> str:
             f"quality")
 
 
+
+def jev_headline(summary: dict) -> str:
+    """Jev's result, stated as a range over its encodings rather than a number.
+
+    The previous edition of this report put one Jev number in the opening line.
+    That number was a property of the Choice encoding and was read as a property
+    of the product, which is the single mistake this report exists to correct.
+    So the headline is generated from every Jev encoding that ran, names the best
+    one, and only ever gives a single number when only one encoding was measured.
+
+    The range is taken only over encodings that cleared ``MIN_COVERAGE``. An
+    earlier edition quoted Choice's 27.7% here as Jev's worst score while the
+    leaderboard on the same page withheld that number as not comparable. Both
+    statements cannot be true. The table is right -- a score over the subset of
+    questions an encoding happened to answer is not the same quantity as a score
+    over all of them -- so the headline now obeys the same rule the table does,
+    and names the withheld encoding instead of scoring it.
+    """
+    mine = [summary[a] for a in JEV_ARMS if a in summary and summary[a]["recall@5"] is not None]
+    if not mine:
+        return "Jev returned no scoreable answer in this run."
+    ranked = [s for s in mine if coverage(s) >= MIN_COVERAGE]
+    held = [s for s in mine if coverage(s) < MIN_COVERAGE]
+
+    def held_sentence() -> str:
+        if not held:
+            return ""
+        parts = []
+        for s in sorted(held, key=lambda s: s["arm"]):
+            parts.append(f"{PRETTY[s['arm']]} answered only {s['scored']} of "
+                         f"{s['attempted']} questions, so its score is withheld for "
+                         f"the same reason the table withholds it, though it was the "
+                         f"cheapest thing in the run at "
+                         f"{usd(s['cost_per_1k_micro'], 2)} per thousand questions")
+        return " " + "; ".join(parts) + "."
+
+    if not ranked:
+        return ("No Jev encoding answered enough questions to be scored against the "
+                "rest of the field." + held_sentence())
+    if len(ranked) == 1:
+        s = ranked[0]
+        return (f"{PRETTY[s['arm']]} found {pct(s['recall@5'])} at "
+                f"{usd(s['cost_per_1k_micro'], 2)} per thousand questions. Only one "
+                f"Jev encoding cleared the coverage bar here, so this number says "
+                f"nothing about the others." + held_sentence())
+    best = max(ranked, key=lambda s: s["recall@5"])
+    worst = min(ranked, key=lambda s: s["recall@5"])
+    cheap = min(ranked, key=lambda s: s["cost_per_1k_micro"])
+    rival = min((s["cost_per_1k_micro"] for a, s in summary.items()
+                 if a not in JEV_ARMS and s["cost_micro"]
+                 and coverage(s) >= MIN_COVERAGE), default=None)
+    # "Jev is not one number" is a claim about spread, so it is only made when
+    # the spread is real. With the encodings this run could score landing a
+    # third of a point apart, the honest headline is that they agree.
+    gap = best["recall@5"] - worst["recall@5"]
+    if gap < 0.02:
+        out = (f"**Jev's encodings that could be scored agree with each other.** "
+               f"{PRETTY[best['arm']]} found {pct(best['recall@5'])} at "
+               f"{usd(best['cost_per_1k_micro'], 2)} per thousand questions and "
+               f"{PRETTY[worst['arm']]} found {pct(worst['recall@5'])} at "
+               f"{usd(worst['cost_per_1k_micro'], 2)}, a gap of "
+               f"{gap * 100:.1f} of a percentage point, which is far inside the "
+               f"error bars on either")
+    else:
+        out = (f"**Jev is not one number: it scored between {pct(worst['recall@5'])} and "
+               f"{pct(best['recall@5'])} depending only on how the question was put to "
+               f"it.** {PRETTY[best['arm']]} was its best encoding at "
+               f"{pct(best['recall@5'])} and {usd(best['cost_per_1k_micro'], 2)} per "
+               f"thousand questions; {PRETTY[worst['arm']]} was its worst at "
+               f"{pct(worst['recall@5'])}")
+    if cheap["arm"] != worst["arm"]:
+        out += f", and {PRETTY[cheap['arm']]} was its cheapest"
+    out += "."
+    if rival is not None:
+        out += (f" The cheapest scoreable Jev encoding costs "
+                f"{usd(cheap['cost_per_1k_micro'], 2)} per thousand questions, against "
+                f"{usd(rival, 2)} for the cheapest non-Jev model that answered enough "
+                f"questions to be scored.")
+    return out + held_sentence()
+
+
+def _dearest_unscorable(summary: dict) -> str:
+    """The dearest model whose coverage is too low to score, named from the data.
+
+    The prose used to name this model by hand. A hand-typed model name in a
+    sentence about cost is a claim that stops being true the first time the
+    roster or the failure pattern changes, and nothing would catch it.
+    """
+    weak = [s for s in summary.values()
+            if s["cost_micro"] and coverage(s) < MIN_COVERAGE]
+    if not weak:
+        return ""
+    d = max(weak, key=lambda s: s["cost_per_1k_micro"])
+    return (f"Not the dearest we tried: {PRETTY[d['arm']]} cost "
+            f"{usd(d['cost_per_1k_micro'], 2)} per thousand questions, more than any "
+            f"scored model, and is absent from the chart above for answering too few "
+            f"of them.")
+
+
+def chart_omissions(summary: dict) -> str:
+    """Name every model the chart leaves out, and why.
+
+    The chart plots only models whose answers can be averaged: a model that
+    failed a quarter of its questions did not fail a random quarter, so its
+    score is not comparable and plotting it invites exactly the comparison the
+    number cannot support. That is defensible, but leaving it unsaid is not: the
+    cheapest option in this whole report is one of the models excluded, and a
+    cost chart that quietly drops the cheapest thing on it is misleading however
+    principled the rule behind it. So the rule stays and the absence is printed.
+    """
+    missing = []
+    for s in order(summary):
+        if s["arm"] == "bm25-baseline":
+            missing.append(f"{PRETTY[s['arm']]} costs nothing, and zero has no place "
+                           f"on a log axis (it scored {pct(s['recall@5'])})")
+        elif s["cost_micro"] and coverage(s) < MIN_COVERAGE:
+            missing.append(f"{PRETTY[s['arm']]} answered only {s['scored']} of "
+                           f"{s['attempted']} questions, below the {MIN_COVERAGE:.0%} "
+                           f"needed to average a score, at "
+                           f"{usd(s['cost_per_1k_micro'], 2)} per 1,000")
+        elif not s["cost_micro"] and s["arm"] != "bm25-baseline":
+            missing.append(f"{PRETTY[s['arm']]} never returned a priced answer "
+                           f"({s['scored']} of {s['attempted']} questions)")
+    if not missing:
+        return "Every model measured is on the chart."
+    return ("**Not every model is on the chart.** " + "; ".join(missing)
+            + ". Their numbers are all in Appendix B and Appendix C; they are kept "
+              "off this chart because averaging a model's score over the questions "
+              "it happened to survive is arithmetic, not measurement.")
+
+
 # --- assembly ---------------------------------------------------------------
 
+#: The process figure. It is a rendered artifact, not a drawing: the spec is
+#: `report/pipeline.architecture.json` in this repository, and the caption prints
+#: its hash so a reader can check that the picture and the pipeline description
+#: came from the same file.
+PIPELINE_PNG = "report/assets/pipeline.png"
+PIPELINE_SPEC = "report/pipeline.architecture.json"
+
+
+def pipeline_figure(ctx: dict) -> str:
+    """The end-to-end diagram, on its own oversized page.
+
+    Raises FileNotFoundError if either the render or the spec is missing, rather
+    than emitting a figure with a broken image: a report whose first page is a
+    grey box is worse than one that fails to build.
+    """
+    png, spec = ROOT / PIPELINE_PNG, ROOT / PIPELINE_SPEC
+    for f in (png, spec):
+        if not f.exists():
+            raise FileNotFoundError(f"process diagram missing: {f}")
+    doc = json.loads(spec.read_text())
+    nodes = len(doc.get("components", []))
+    edges = len(doc.get("connections", []))
+    digest = hashlib.sha256(spec.read_bytes()).hexdigest()[:16]
+    return (
+        f"<figure class='pipeline'><img src='{PIPELINE_PNG}' "
+        f"alt='The full pipeline, from the three public corpora to the results file'>"
+        f"<figcaption>Every step between a public dataset and a number in this "
+        f"report. {nodes} components, {edges} connections. Nothing to the left of "
+        f"<em>tasks.json</em> depends on any model: the questions were fixed, "
+        f"written to disk and hashed before the first model was called. "
+        f"Rendered from <span class='mono'>{PIPELINE_SPEC}</span>, "
+        f"sha256 {digest}\u2026</figcaption></figure>"
+    )
+
+
+#: How much of a chunk the worked example prints. Long enough to judge relevance
+#: by eye, short enough that a hundred of them fit on a page. The full text of
+#: every chunk is in `data/rag/tasks.json`, keyed by the id printed beside it.
+EXAMPLE_CHARS = 120
+
+
+def _example_task(tasks: dict, rows: list[dict]) -> dict:
+    """Pick the query the worked example walks through, deterministically.
+
+    The pick is made by a seeded shuffle over the *eligible* queries rather than
+    by choosing the one with the nicest numbers. Eligible means: the hard
+    stratum, at least two gold chunks the retriever actually reached, and a
+    result row from every model that answered anything at all. A worked example
+    chosen after seeing the results is a sales exhibit, not evidence.
+
+    "Answered anything at all" is the one deliberate loosening. A model that
+    failed on every single query — a key that ran out of budget, a model pulled
+    from the provider mid-run — carries no information about any query, so
+    demanding its agreement would only make the example impossible to choose
+    while proving nothing. A model that failed on *some* queries still excludes
+    exactly those, which is the point of the rule.
+    """
+    scored = {r["query_id"] for r in rows if r["failure"] is None}
+    arms = {r["arm"] for r in rows if r["failure"] is None}
+    complete = {q for q in scored
+                if len({r["arm"] for r in rows
+                        if r["query_id"] == q and r["failure"] is None}) == len(arms)}
+    eligible = [t for t in tasks["tasks"]
+                if t["query_id"] in complete
+                and t.get("stratum") == "hard"
+                and t.get("gold_reachable", 0) >= 2]
+    if not eligible:
+        raise ValueError("no query is hard, reachable and scored by every model; "
+                         "the worked example cannot be chosen without cherry-picking")
+    eligible.sort(key=lambda t: t["query_id"])
+    random.Random(SEED).shuffle(eligible)
+    return eligible[0]
+
+
+def worked_example(ctx: dict) -> str:
+    """One query, end to end: the request, the hundred chunks, every model's picks."""
+    tasks, rows, summary = ctx["tasks"], ctx["rows"], ctx["summary"]
+    task = _example_task(tasks, rows)
+    cands = task["candidates"][: ctx["res"]["depth"]]
+    ids = [c["id"] for c in cands]
+    gold = set(task["gold_ids"])
+    pos = {cid: i + 1 for i, cid in enumerate(ids)}
+
+    url, body = jev_rank.build_request(by_name("jev"), dict(task, candidates=cands), 10, None)
+    shown = json.loads(json.dumps(body))
+    crit = shown["questions"][jev_rank.QUESTION]["criteria"]
+    keep = list(crit)[:2]
+    shown["questions"][jev_rank.QUESTION]["criteria"] = {
+        k: crit[k][:EXAMPLE_CHARS] + " \u2026" for k in keep}
+    shown["questions"][jev_rank.QUESTION]["criteria"][
+        f"\u2026 and {len(crit) - len(keep)} more, one per chunk"] = "\u2026"
+
+    out = [
+        "<p>Query <span class='mono'>%s</span> from %s, difficulty <b>hard</b>: "
+        "%d of its %d correct chunks are somewhere in the hundred, none in the "
+        "first five of the keyword order.</p>"
+        % (inline(task["query_id"]), SOURCE_LABEL[task["source"]],
+           task.get("gold_reachable", 0), len(gold)),
+        "<blockquote>%s</blockquote>" % inline(task["query"][:1200]),
+        "<h3>The exact request</h3>",
+        "<p>This is the body posted to <span class='mono'>%s</span>, with the "
+        "chunk texts cut for length. Every chunk becomes one named option; the "
+        "answer comes back as a probability per option.</p>" % inline(url),
+        "<pre>%s</pre>" % inline(json.dumps(shown, indent=1)[:2200]),
+        "<h3>The hundred chunks it was given</h3>",
+        "<p>In the order the keyword search returned them. <b>&#9733;</b> marks a "
+        "chunk a human judged correct for this query, decided before the run.</p>",
+        _chunk_table(cands, gold),
+        "<h3>What each model picked</h3>",
+        "<p>Each model's top five, in its own order. The number in brackets is "
+        "where the keyword search had put that chunk \u2014 so <span class='mono'>"
+        "[41]</span> means the model promoted something from 41st place.</p>",
+        _picks_table(task, rows, summary, gold, pos),
+        "<h3>Why those were the right ones</h3>",
+        "<p>The chunks a human judged correct for this query, with where the "
+        "keyword search had ranked them and which models put one in their top "
+        "five. These judgements ship with the dataset; we did not make them.</p>",
+        _gold_table(task, cands, rows, summary, gold, pos),
+    ]
+    return "".join(out)
+
+
+def _gold_table(task: dict, cands: list[dict], rows: list[dict], summary: dict,
+                gold: set, pos: dict) -> str:
+    """The judged-correct chunks, and who found them.
+
+    Only the gold that is actually inside the candidate list is listed: a gold
+    chunk the retriever never returned could not have been found by anyone, and
+    printing it here would read as nine models failing at something that was
+    never on the table.
+    """
+    text = {c["id"]: " ".join(c["text"].split()) for c in cands}
+    reachable = [cid for cid in sorted(gold) if cid in text]
+    head = ("<table class='goldset'><thead><tr><th>Correct chunk</th>"
+            "<th class='n'>Keyword<br>rank</th><th>What it says</th>"
+            "<th>Put it in the top 5</th></tr></thead><tbody>")
+    body = []
+    for cid in reachable:
+        found = [PRETTY[s["arm"]] for s in order(summary)
+                 for r in rows
+                 if r["arm"] == s["arm"] and r["query_id"] == task["query_id"]
+                 and r["failure"] is None and cid in r["ranking"][:5]]
+        body.append("<tr><td class='mono'>&#9733; %s</td><td class='n'>%s</td>"
+                    "<td>%s</td><td>%s</td></tr>"
+                    % (inline(cid), pos.get(cid, "?"),
+                       inline(text[cid][:EXAMPLE_CHARS]),
+                       inline(", ".join(found)) if found
+                       else "<span class='dim'>nobody</span>"))
+    if not body:
+        return ("<p>None of this query's correct chunks were inside the hundred, "
+                "so there was nothing for any model to find.</p>")
+    return head + "".join(body) + "</tbody></table>"
+
+
+def _chunk_table(cands: list[dict], gold: set) -> str:
+    head = ("<table class='chunks'><thead><tr><th class='n'>#</th><th>Chunk id</th>"
+            "<th>First %d characters</th></tr></thead><tbody>" % EXAMPLE_CHARS)
+    body = []
+    for i, c in enumerate(cands, 1):
+        mark = " &#9733;" if c["id"] in gold else ""
+        text = " ".join(c["text"].split())[:EXAMPLE_CHARS]
+        body.append("<tr%s><td class='n'>%d</td><td class='mono'>%s%s</td><td>%s</td></tr>"
+                    % (" class='gold'" if c["id"] in gold else "", i,
+                       inline(c["id"]), mark, inline(text)))
+    return head + "".join(body) + "</tbody></table>"
+
+
+def _picks_table(task: dict, rows: list[dict], summary: dict,
+                 gold: set, pos: dict) -> str:
+    """Each model's top five, stacked inside one cell.
+
+    Laid out down the page rather than across it because chunk ids run to fifty
+    characters: five of them as five columns overflows the page and silently
+    clips the last two, which is the worst possible failure for a table whose
+    whole purpose is that nothing was hidden.
+    """
+    head = ("<table class='picks'><thead><tr><th>Model</th>"
+            "<th>What it put in its top five, best first "
+            "<span class='dim'>[keyword rank]</span></th>"
+            "<th class='n'>Right<br>in 5</th></tr></thead><tbody>")
+    body = []
+    for srow in order(summary):
+        arm = srow["arm"]
+        hit = [r for r in rows if r["arm"] == arm and r["query_id"] == task["query_id"]]
+        if not hit or hit[0]["failure"] is not None:
+            body.append("<tr><td>%s</td><td colspan='2'>no answer: %s</td></tr>"
+                        % (inline(PRETTY[arm]),
+                           inline(hit[0]["failure"] if hit else "not run")))
+            continue
+        top = hit[0]["ranking"][:5]
+        picks = []
+        for i, cid in enumerate(top, 1):
+            picks.append(
+                "<div class='pick%s'><span class='dim'>%d.</span> %s%s "
+                "<span class='dim'>[%s]</span></div>"
+                % (" gold" if cid in gold else "", i,
+                   "&#9733; " if cid in gold else "", inline(cid), pos.get(cid, "?")))
+        body.append("<tr><td>%s</td><td class='mono'>%s</td>"
+                    "<td class='n'>%d of %d</td></tr>"
+                    % (inline(PRETTY[arm]), "".join(picks),
+                       len([c for c in top if c in gold]), min(5, len(gold))))
+    return head + "".join(body) + "</tbody></table>"
+
+
+#: The three difficulty slices, in the order a reader should read them. The
+#: labels say what the slice *is* rather than naming it, because "hard" on its
+#: own invites a reader to assume we chose what hard means after seeing scores.
+STRATA = [
+    ("hard", "Hard \u2014 a correct chunk is in the 100, none in the keyword top 5"),
+    ("easy", "Already solved \u2014 keyword search had one in its own top 5"),
+    ("unreachable", "Impossible \u2014 no correct chunk in the 100 at all"),
+]
+
+
+def _common_subset(rows: list[dict], summary: dict) -> tuple[list[str], list[tuple[str, float]]]:
+    """The questions every arm answered, and each arm's score over exactly those.
+
+    The leaderboard scores each arm over the questions it personally answered.
+    That is the right number for "what will this cost me and get me in
+    production", and it is the wrong number for "which one is better", because
+    two arms with different failure patterns are then being scored on different
+    exams. This computes the other number: one exam, taken by everyone.
+
+    An arm that answered nothing is excluded rather than emptying the
+    intersection, the same rule the worked example uses.
+    """
+    scored = {}
+    for a in summary:
+        got = {r["query_id"] for r in rows
+               if r["arm"] == a and r["failure"] is None and r["recall@5"] is not None}
+        if got:
+            scored[a] = got
+    if not scored:
+        return [], []
+    common = set.intersection(*scored.values())
+    if not common:
+        return [], []
+    out = []
+    for a in scored:
+        vals = [r["recall@5"] for r in rows
+                if r["arm"] == a and r["query_id"] in common
+                and r["failure"] is None and r["recall@5"] is not None]
+        out.append((a, sum(vals) / len(vals)))
+    out.sort(key=lambda t: -t[1])
+    return sorted(common), out
+
+
+def common_subset_table(ctx: dict) -> str:
+    """The leaderboard re-run over the identical question set, side by side."""
+    common, scores = _common_subset(ctx["rows"], ctx["summary"])
+    if not scores:
+        return ("<p class='note'>No question was answered by every arm, so no "
+                "common-denominator comparison is possible.</p>")
+    summary = ctx["summary"]
+    full_rank = {s["arm"]: i + 1 for i, s in enumerate(order(summary))}
+    head = ("<table class='headline'><thead><tr><th>Model</th>"
+            f"<th class='n'>On the {len(common)} questions<br>"
+            "<span class='dim'>every model answered</span></th>"
+            "<th class='n'>Rank here</th>"
+            "<th class='n'>Rank on the<br><span class='dim'>main table</span></th>"
+            "</tr></thead><tbody>")
+    body = []
+    for i, (arm, val) in enumerate(scores):
+        body.append(f"<tr><td>{inline(PRETTY[arm])}</td>"
+                    f"<td class='n'>{pct(val)}</td>"
+                    f"<td class='n'>{i + 1}</td>"
+                    f"<td class='n'>{full_rank.get(arm, '—')}</td></tr>")
+    return head + "".join(body) + "</tbody></table>"
+
+
+def _common_subset_tokens(rows: list[dict], summary: dict) -> dict[str, str]:
+    """The sentence under the common-denominator table, written from that table.
+
+    It is generated rather than typed because its whole claim is about which
+    ordering the data produces, and a typed ordering would go stale silently.
+    """
+    common, scores = _common_subset(rows, summary)
+    if not scores:
+        return {"common_n": "0",
+                "common_finding": "No question was answered by every model, so "
+                                  "the field cannot be put on one exam."}
+    here = [a for a, _ in scores]
+    # Rank the main table over exactly the arms that appear here, so an arm
+    # missing from one side cannot shift every rank below it and be counted as
+    # a model that moved. Only a genuine reordering should show up as movement.
+    full = [s["arm"] for s in order(summary) if s["arm"] in here]
+    moved = [a for a in here if full.index(a) != here.index(a)]
+    top_here = next(a for a in here if a != "bm25-baseline")
+    top_full = next(a for a in full if a != "bm25-baseline")
+    # The baseline is not a competitor, so it does not set the field's width.
+    vals = [v for a, v in scores if a != "bm25-baseline"]
+    spread = max(vals) - min(vals)
+    if not moved:
+        finding = (f"The order does not change: {inline(PRETTY[top_here])} leads on both, "
+                   f"and the models sit within {spread * 100:.1f} percentage points of "
+                   f"each other. That is the strongest version of the main table's claim.")
+    else:
+        finding = (f"**The order changes.** On one shared exam "
+                   f"{inline(PRETTY[top_here])} leads, not {inline(PRETTY[top_full])}, "
+                   f"and {len(moved)} of {len(here)} entries change place. The models "
+                   f"then all sit within {spread * 100:.1f} percentage points of each other. "
+                   f"Neither table is wrong; they answer different questions. The main "
+                   f"table answers \u201cwhat do I get if I buy this one\u201d, counting "
+                   f"each model only on what it managed to answer. This one answers "
+                   f"\u201cwhich one is better at the job\u201d, and its answer is that "
+                   f"the test cannot tell. Any ranking that survives only one of these "
+                   f"two framings is not a finding about the models.")
+    return {"common_n": f"{len(common)}", "common_finding": finding}
+
+
+def strata_table(ctx: dict) -> str:
+    """Recall@5 by difficulty slice.
+
+    The slice is decided by the retriever alone, before any model runs, and is
+    stored on the task. Splitting on it here is a read, not a new rule.
+    """
+    rows, summary = ctx["rows"], ctx["summary"]
+    counts = {k: len({r["query_id"] for r in rows if r["stratum"] == k})
+              for k, _ in STRATA}
+    head = ("<table class='strata'><thead><tr><th>Model</th>"
+            + "".join(f"<th class='n'>{inline(lab)}<br><span class='dim'>"
+                      f"{counts[k]} questions</span></th>" for k, lab in STRATA)
+            + "</tr></thead><tbody>")
+    body = []
+    for s in order(summary):
+        cells = []
+        for k, _ in STRATA:
+            vals = [r["recall@5"] for r in rows
+                    if r["arm"] == s["arm"] and r["stratum"] == k
+                    and r["failure"] is None and r["recall@5"] is not None]
+            cells.append(f"<td class='n'>{pct(sum(vals) / len(vals)) if vals else '—'}"
+                         f"<br><span class='dim'>{len(vals)} scored</span></td>")
+        body.append(f"<tr><td>{inline(PRETTY[s['arm']])}</td>{''.join(cells)}</tr>")
+    return head + "".join(body) + "</tbody></table>"
+
+
+#: The three Jev arms, in the order the encodings are explained.
+JEV_ARMS = ["jev", "jev-noul", "jev-score"]
+
+#: What each encoding does, in one line, for the table's own left column.
+ENCODING_NOTE = {
+    "jev": "all 100 chunks as options in one question; they share one pool of probability",
+    "jev-noul": "one yes/no question per chunk: is this chunk an answer?",
+    "jev-score": "one question per chunk, placed on a four-level usefulness rubric",
+}
+
+
+def _encoding_tokens(summary: dict, rows: list[dict]) -> dict[str, str]:
+    """The sentence under the encoding table, written from the encoding table.
+
+    The comparison is only made among the encodings that actually produced a
+    score, and the sentence names the gap rather than asserting a winner, so a
+    run where the three land inside each other's intervals reads as a tie
+    instead of as a result.
+    """
+    have = [(a, summary[a]) for a in JEV_ARMS
+            if a in summary and summary[a].get("recall@5") is not None]
+    if len(have) < 2:
+        return {"encoding_finding": "Only one encoding produced a score in this run, "
+                                    "so there is nothing to compare."}
+    best = max(have, key=lambda kv: kv[1]["recall@5"])
+    cheap = min(have, key=lambda kv: kv[1]["cost_per_1k_micro"])
+    spread = best[1]["recall@5"] - min(s["recall@5"] for _, s in have)
+    ratio = (max(s["cost_per_1k_micro"] for _, s in have)
+             / max(1, min(s["cost_per_1k_micro"] for _, s in have)))
+    same = best[0] == cheap[0]
+    return {"encoding_finding": (
+        f"**The gap between the best and worst way of asking the same model is "
+        f"{pct(spread)}, and the gap in price is {ratio:.0f}\u00d7.** The most accurate "
+        f"encoding here is *{PRETTY[best[0]]}*; the cheapest is *{PRETTY[cheap[0]]}*"
+        + (", and they are the same one." if same else
+           " \u2014 they are not the same one, so this is a choice, not a default.")
+        + " Any sentence of the form \u201cJev scores X\u201d is incomplete without "
+          "naming which of these three it means.")}
+
+
+def encoding_table(ctx: dict) -> str:
+    """The same model, the same question, three grammars.
+
+    Present because the first edition of this report measured one encoding and
+    called the result "Jev". The three rows differ only in how the question was
+    written; the model id in every request is identical.
+    """
+    rows, summary = ctx["rows"], ctx["summary"]
+    head = ("<table class='encodings'><thead><tr><th>How we asked</th>"
+            "<th class='n'>Right in 5</th><th class='n'>Of what it was shown</th>"
+            "<th class='n'>HTTP calls<br>per question</th>"
+            "<th class='n'>Input tokens<br>per question</th>"
+            "<th class='n'>Cost per<br>1,000 questions</th>"
+            "<th class='n'>Questions<br>it could not answer</th>"
+            "</tr></thead><tbody>")
+    body = []
+    for arm in JEV_ARMS:
+        s = summary.get(arm)
+        mine = [r for r in rows if r["arm"] == arm]
+        if not s or not mine:
+            continue
+        ok = [r for r in mine if r["failure"] is None]
+        calls = sum(r.get("subcalls", 1) for r in mine)
+        tok = sum(r["input_tokens"] for r in mine)
+        body.append(
+            "<tr><td><b>{name}</b><br><span class='dim'>{note}</span></td>"
+            "<td class='n'>{r5}</td><td class='n'>{rr}</td>"
+            "<td class='n'>{calls:,.0f}</td><td class='n'>{tok:,.0f}</td>"
+            "<td class='n'>{cost}</td><td class='n'>{fail} of {n}</td></tr>".format(
+                name=inline(PRETTY[arm]), note=inline(ENCODING_NOTE[arm]),
+                r5=pct(s.get("recall@5")), rr=pct(s.get("reachable@5")),
+                calls=calls / len(mine), tok=tok / max(1, len(ok)),
+                cost=usd(s["cost_per_1k_micro"], 2),
+                fail=len(mine) - len(ok), n=len(mine)))
+    return head + "".join(body) + "</tbody></table>"
+
+
 BLOCKS = {
+    "PIPELINE_FIGURE": pipeline_figure,
     "HEADLINE_TABLE": lambda c: headline_table(c["summary"]),
     "BY_SOURCE_TABLE": lambda c: by_source_table(c["rows"], c["summary"]),
+    "STRATA_TABLE": strata_table,
+    "COMMON_SUBSET_TABLE": common_subset_table,
+    "ENCODING_TABLE": encoding_table,
     "LIFT_TABLE": lambda c: lift_table(c["rows"], c["summary"]),
     "COST_CHART": lambda c: chart(c["summary"]),
     "MATRIX": lambda c: matrix_html(c["rows"], c["summary"]),
     "FULL_TABLE": lambda c: full_table(c["summary"]),
     "FAILURES": lambda c: failures_html(c["summary"]),
+    "WORKED_EXAMPLE": worked_example,
 }
 
 PAGE = TEMPLATE.replace(

@@ -1,8 +1,8 @@
 """Loading the candidate corpus, whichever way it is stored on disk.
 
-The corpus is 8.6 MB of raw JSON and it is committed, because a benchmark whose
+The corpus is 34.8 MB of raw JSON and it is committed, because a benchmark whose
 inputs are not in the repository cannot be re-run by a reader. Gzipped it is
-2.8 MB, which is the difference between a repository that clones quickly and one
+9.8 MB, which is the difference between a repository that clones quickly and one
 that does not, so the committed artifact is `tasks.json.gz`.
 
 Both forms stay readable here rather than at the call sites: the runner and the

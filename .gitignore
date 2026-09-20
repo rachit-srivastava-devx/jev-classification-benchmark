@@ -8,3 +8,6 @@ tests/fixtures/captured/
 smoke.html
 judge.json
 judge.log
+.venv/
+data/rag/tasks.json
+report/.pipeline-print.html

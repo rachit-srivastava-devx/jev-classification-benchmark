@@ -149,6 +149,23 @@ equally.
 prompt. A different prompt, or a purpose-built reranking model, could do better. We did
 not tune per model, because tuning one and not the others is how benchmarks get rigged.
 
+**We probably asked Jev the wrong way, and that works against Jev.** Jev offers three
+ways to ask a question: *choice* (pick one from a list), *score* (rate it on a scale) and
+*noul* (is this true?). We used **choice**, with all {{depth}} chunks as the options in a
+single question — so the chunks compete for one pool of probability. Since publishing,
+we checked what other people building rerankers on Jev actually do, and neither of the two
+public ones does it our way: one asks a separate *noul* question per chunk — "is this
+chunk relevant?" — and sorts by the answer; the other uses a *score* rubric, one chunk at
+a time. Both give each chunk an independent judgement instead of making them compete.
+That is the shape the protocol is documented for.
+
+This was an encoding mistake, not a fault in the product. It ran correctly — every call
+returned a full set of scores, none were dropped, and none hit the size limit — but the
+number it produced is **most likely a floor for Jev rather than its best**. Jev already
+came first on accuracy here while being the cheapest, so the mistake did not change who
+won; it may have understated by how much. Re-running with *noul* would cost about $0.09
+and is the first thing to do if this test is repeated.
+
 **Cost is what the provider billed us**, read back from each call, not estimated from a
 price list.
 

@@ -342,6 +342,7 @@ def headline_table(summary: dict) -> str:
     """The one table a reader who reads nothing else should see."""
     head = ("<table class='headline'><thead><tr><th>Model</th>"
             "<th class='n'>Found the right chunks</th><th class='n'>95% range</th>"
+            "<th class='n'>Calls per question</th>"
             "<th class='n'>Cost per 1,000 questions</th><th class='n'>Typical speed</th>"
             "</tr></thead><tbody>")
     body = []
@@ -356,6 +357,7 @@ def headline_table(summary: dict) -> str:
             body.append(
                 f"<tr class='unresolved'><td>{inline(PRETTY[s['arm']])}</td>"
                 f"<td class='n sub' colspan='2'>{note}</td>"
+                f"<td class='n'>{s['calls_per_query']}</td>"
                 f"<td class='n'>{usd(s['cost_per_1k_micro'], 2)}</td>"
                 f"<td class='n'>{ms(s['p50_ms'], ' ms')}</td></tr>")
             continue
@@ -363,6 +365,7 @@ def headline_table(summary: dict) -> str:
             f"<tr><td>{inline(PRETTY[s['arm']])}</td>"
             f"<td class='n'>{pct(s['recall@5'])}</td>"
             f"<td class='n sub'>{pct(ci[0]) if ci else '—'} to {pct(ci[1]) if ci else '—'}</td>"
+            f"<td class='n'>{s['calls_per_query']}</td>"
             f"<td class='n'>{usd(s['cost_per_1k_micro'], 2)}</td>"
             f"<td class='n'>{ms(s['p50_ms'], ' ms')}</td></tr>")
     return head + "".join(body) + "</tbody></table>"
@@ -790,14 +793,26 @@ def pipeline_figure(ctx: dict) -> str:
     nodes = len(doc.get("components", []))
     edges = len(doc.get("connections", []))
     digest = hashlib.sha256(spec.read_bytes()).hexdigest()[:16]
+    # The question set gets its own hash, taken from the file on disk at build
+    # time. Quoting the diagram's hash here instead — as an earlier draft did —
+    # looked like provenance for the questions and was not.
+    tasks = ROOT / "data" / "rag" / "tasks.json"
+    if not tasks.exists():
+        raise FileNotFoundError(f"question set missing: {tasks}")
+    tdigest = hashlib.sha256(tasks.read_bytes()).hexdigest()[:16]
     return (
         f"<figure class='pipeline'><img src='{PIPELINE_PNG}' "
         f"alt='The full pipeline, from the three public corpora to the results file'>"
         f"<figcaption>Every step between a public dataset and a number in this "
         f"report. {nodes} components, {edges} connections. Nothing to the left of "
-        f"<em>tasks.json</em> depends on any model: the questions were fixed, "
-        f"written to disk and hashed before the first model was called. "
-        f"Rendered from <span class='mono'>{PIPELINE_SPEC}</span>, "
+        f"<em>tasks.json</em> depends on any model: the code that builds the "
+        f"questions imports no model client, so the question set cannot have been "
+        f"chosen by looking at an answer. The question set shipped with this "
+        f"report is <span class='mono'>data/rag/tasks.json</span>, sha256 "
+        f"{tdigest}\u2026 \u2014 re-hash it and you are reading the same 350 "
+        f"questions the models were given. That hash fixes <em>which</em> "
+        f"questions; it does not by itself prove <em>when</em> they were written. "
+        f"Diagram rendered from <span class='mono'>{PIPELINE_SPEC}</span>, "
         f"sha256 {digest}\u2026</figcaption></figure>"
     )
 

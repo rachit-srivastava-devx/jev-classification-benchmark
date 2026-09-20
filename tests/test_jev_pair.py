@@ -107,26 +107,39 @@ def test_a_missing_usage_block_fails_because_the_call_cannot_be_costed():
 
 # --- ranking -------------------------------------------------------------
 
-def transport_for(values, statuses=None):
-    """A fake transport that answers each passage by its text's trailing index."""
+def transport_for(values, unscored=()):
+    """A fake batched transport: one response covering every passage in the batch.
+
+    `unscored` names passage indices the endpoint declines to answer. It omits
+    them from the answers object rather than returning a status code, because
+    that is how a partial failure actually reaches us now that many passages
+    share one request — and it is the case that fails silently if the ranking
+    code defaults a missing answer instead of dropping it.
+    """
     calls = []
 
     def send(url, body, headers):
-        i = int(body["state"]["passage"].split()[-1])
-        calls.append(i)
-        status = 200 if statuses is None else statuses[i]
-        return status, body_of(answers={jev_pair.QUESTION: {"noul": values[i]}}), 0.0
+        ids = list(body["questions"])
+        calls.append(ids)
+        answers = {pid: {"noul": values[int(pid[1:])]}
+                   for pid in ids if int(pid[1:]) not in unscored}
+        n = len(ids)
+        return 200, body_of(answers=answers,
+                            usage={"input_tokens": 1200 * n, "output_tokens": 0,
+                                   "cost": 0.00005 * n}), 0.0
 
     send.calls = calls
     return send
 
 
 def test_passages_are_ordered_by_descending_value():
-    res = jev_pair.rank(NOUL, "noul", task(4),
-                        transport_for([0.1, 0.9, 0.4, 0.7]), {})
+    send = transport_for([0.1, 0.9, 0.4, 0.7])
+    res = jev_pair.rank(NOUL, "noul", task(4), send, {})
     assert res.failure is None
     assert res.ranking == ["p1", "p3", "p2", "p0"]
-    assert res.subcalls == 4 and res.subcall_failures == 0
+    # Four short passages fit in one request, so that is one HTTP call, not four.
+    assert send.calls == [["p0", "p1", "p2", "p3"]]
+    assert res.subcalls == 1 and res.subcall_failures == 0
 
 
 def test_ties_are_broken_by_retrieval_position_not_by_which_thread_finished_first():
@@ -147,7 +160,7 @@ def test_usage_is_summed_across_every_subcall():
 def test_one_unscorable_passage_is_ranked_last_rather_than_dropped():
     # 1 failure out of 20 is under the 10% threshold, so the query still scores.
     res = jev_pair.rank(NOUL, "noul", task(20),
-                        transport_for([0.5] * 20, statuses=[500] + [200] * 19), {})
+                        transport_for([0.5] * 20, unscored=(0,)), {})
     assert res.failure is None
     assert res.ranking[-1] == "p0"
     assert len(res.ranking) == 20        # nothing lost
@@ -156,7 +169,7 @@ def test_one_unscorable_passage_is_ranked_last_rather_than_dropped():
 
 def test_a_query_whose_subcalls_broadly_failed_is_a_failure_not_a_partial_score():
     res = jev_pair.rank(NOUL, "noul", task(20),
-                        transport_for([0.5] * 20, statuses=[500] * 2 + [200] * 18), {})
+                        transport_for([0.5] * 20, unscored=(0, 1)), {})
     assert res.failure == "http_error"
     assert res.ranking == []
     assert res.subcall_failures == 2
@@ -164,30 +177,144 @@ def test_a_query_whose_subcalls_broadly_failed_is_a_failure_not_a_partial_score(
 
 def test_a_failed_query_still_reports_the_tokens_its_successful_subcalls_burned():
     # A spend cap that cannot see this money is not a cap.
+    # The batch came back and was billed in full; two of its answers were missing.
+    # The money is real either way and the cap has to see it.
     res = jev_pair.rank(NOUL, "noul", task(20),
-                        transport_for([0.5] * 20, statuses=[500] * 2 + [200] * 18), {})
-    assert res.input_tokens == 18 * 1200
-    assert res.reported_cost_micro == 18 * 50
+                        transport_for([0.5] * 20, unscored=(0, 1)), {})
+    assert res.input_tokens == 20 * 1200
+    assert res.reported_cost_micro == 20 * 50
 
 
-def test_a_transport_exception_on_one_passage_does_not_abort_the_others():
+def _exploding(on_id="p0"):
+    """A transport that kills any batch containing `on_id`, and records the batches."""
+    seen = []
+
     def send(url, body, headers):
-        i = int(body["state"]["passage"].split()[-1])
-        if i == 0:
+        ids = list(body["questions"])
+        seen.append(ids)
+        if on_id in ids:
             raise RuntimeError("connection reset")
-        return 200, body_of(answers={jev_pair.QUESTION: {"noul": 0.1 * i}}), 0.0
+        return 200, body_of(
+            answers={pid: {"noul": 0.1 * int(pid[1:])} for pid in ids},
+            usage={"input_tokens": 1200, "output_tokens": 0, "cost": 0.00005}), 0.0
 
-    res = jev_pair.rank(NOUL, "noul", task(20), send, {})
+    send.seen = seen
+    return send
+
+
+def _big_task(n=20, words=3000):
+    """Passages long enough that they cannot all share one request."""
+    return {"query": "why do cells divide?",
+            "candidates": [{"id": f"p{i}", "text": "word " * words} for i in range(n)]}
+
+
+def test_a_dead_batch_does_not_discard_the_batches_that_were_paid_for():
+    # 60 passages, so one dead batch stays under the 10% threshold and the query
+    # survives — which is the only case where "the rest still ranked" is testable.
+    send = _exploding()
+    res = jev_pair.rank(NOUL, "noul", _big_task(n=60), send, {})
+    assert len(send.seen) > 1, "test is meaningless with a single batch"
+    # Everything outside the exploding batch still ranked, and its tokens and
+    # money are still counted. A cap that cannot see that money is not a cap.
     assert res.failure is None
-    assert res.subcall_failures == 1
-    assert len(res.ranking) == 20
+    assert res.input_tokens > 0 and res.reported_cost_micro > 0
+    assert len(res.ranking) == 60, "no passage may be silently dropped"
+
+
+def test_a_failed_batch_is_split_and_retried_so_one_error_costs_fewer_passages():
+    """Batching trades blast radius for efficiency; the split buys some of it back.
+
+    Unbatched, one dead call cost one passage. Batched, it costs the whole batch —
+    enough to trip the failure threshold and lose a query that would have survived
+    before. Halving the dead batch and retrying recovers the half that was fine.
+    """
+    send = _exploding()
+    res = jev_pair.rank(NOUL, "noul", _big_task(), send, {})
+    first_batch = len(send.seen[0])
+    assert res.subcall_failures < first_batch, (
+        "without the retry, every passage in the dead batch is lost")
+    # The retry re-sent the halves, so more requests went out than there were batches.
+    assert len(send.seen) > len([b for b in send.seen if "p0" not in b])
+
+
+def test_a_batch_refused_for_size_is_halved_rather_than_losing_the_query():
+    """The reason this beats Choice: Choice has no smaller request to fall back to."""
+    calls = []
+
+    def send(url, body, headers):
+        ids = list(body["questions"])
+        calls.append(len(ids))
+        if len(ids) > 5:                       # stands in for the input ceiling
+            return 200, body_of(answers={}), 0.0
+        return 200, body_of(
+            answers={pid: {"noul": 0.1 * int(pid[1:])} for pid in ids},
+            usage={"input_tokens": 1200, "output_tokens": 0, "cost": 0.00005}), 0.0
+
+    res = jev_pair.rank(NOUL, "noul", _big_task(n=10, words=1500), send, {})
+    assert max(calls) > 5, "the oversized request has to happen for this to mean anything"
+    assert min(calls) <= 5, "it must then be retried smaller"
+    assert res.failure is None
+    assert len(res.ranking) == 10
 
 
 def test_the_score_arm_ranks_on_the_score_key():
     def send(url, body, headers):
-        i = int(body["state"]["passage"].split()[-1])
-        raw = body_of(answers={jev_pair.QUESTION: {"score": float(i)}})
+        ids = list(body["questions"])
+        raw = body_of(answers={pid: {"score": float(pid[1:])} for pid in ids})
         return 200, raw, 0.0
 
     res = jev_pair.rank(SCORE, "score", task(4), send, {})
     assert res.ranking == ["p3", "p2", "p1", "p0"]
+
+
+# --- batch packing -------------------------------------------------------
+
+def test_every_candidate_lands_in_exactly_one_batch():
+    cands = [{"id": f"p{i}", "text": "word " * 400} for i in range(100)]
+    batches = jev_pair.plan_batches("a query", cands)
+    flat = [i for b in batches for i in b]
+    assert sorted(flat) == list(range(100)), "no passage dropped or duplicated"
+    assert flat == sorted(flat), "retrieval order is preserved, so packing is deterministic"
+
+
+def test_a_hundred_short_passages_go_out_as_far_fewer_than_a_hundred_requests():
+    """The whole point: the envelope and the query are paid for once per batch."""
+    cands = [{"id": f"p{i}", "text": "short passage"} for i in range(100)]
+    assert len(jev_pair.plan_batches("q", cands)) == 1
+
+
+def test_no_batch_is_planned_over_the_measured_input_ceiling():
+    cands = [{"id": f"p{i}", "text": "word " * 800} for i in range(100)]
+    for b in jev_pair.plan_batches("q" * 2000, cands):
+        est = (jev_pair._est_tokens("q" * 2000) + jev_pair._ENVELOPE_TOKENS
+               + sum(jev_pair._est_tokens(cands[i]["text"])
+                     + jev_pair._PER_QUESTION_TOKENS for i in b))
+        assert len(b) == 1 or est <= jev_pair.BATCH_TOKEN_BUDGET
+
+
+def test_one_passage_bigger_than_the_whole_budget_is_still_asked_about():
+    """Dropping it would silently remove a candidate from the ranking."""
+    cands = [{"id": "p0", "text": "word " * 100_000}]
+    assert jev_pair.plan_batches("q", cands) == [[0]]
+
+
+def test_no_candidates_means_no_requests_rather_than_one_empty_one():
+    assert jev_pair.plan_batches("q", []) == []
+
+
+def test_the_batched_request_asks_the_same_judgement_as_the_single_one():
+    """Batching must change packaging only; a reworded rubric would confound the
+    encoding comparison this arm exists to support."""
+    _, single = jev_pair.build_pair_request(SCORE, "score", "q", "p")
+    _, batch = jev_pair.build_batch_request(
+        SCORE, "score", "q", [{"id": "p0", "text": "p"}])
+    assert (batch["questions"]["p0"]["criteria"]
+            == single["questions"][jev_pair.QUESTION]["criteria"])
+    assert batch["questions"]["p0"]["type"] == "score"
+    assert batch["state"]["query"] == "q"
+    assert batch["state"]["passages"] == {"p0": "p"}
+
+
+def test_an_unknown_primitive_stops_before_the_money():
+    with pytest.raises(ValueError):
+        jev_pair.build_batch_request(SCORE, "sentiment", "q", [{"id": "p0", "text": "p"}])

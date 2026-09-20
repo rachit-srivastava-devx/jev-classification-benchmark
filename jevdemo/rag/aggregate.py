@@ -1,6 +1,6 @@
 """Per-call rows into per-model numbers.
 
-Three rules decide every number below, and each one exists because the obvious
+Four rules decide every number below, and each one exists because the obvious
 alternative makes the comparison unfair:
 
 1. A failed call is not a zero. An HTTP 500 is a reliability fact; folding it
@@ -16,16 +16,31 @@ alternative makes the comparison unfair:
 
 3. Comparisons are paired on query id, never on position. Rows come back from a
    thread pool in arrival order.
+
+4. Speed and price are per *question*, and a question does not cost every arm the
+   same number of HTTP calls. The per-passage encodings send one call per
+   candidate — a hundred of them at depth 100 — so their per-question latency and
+   spend are a hundred calls' worth, while a single-call arm's are one. Both are
+   real, and neither is comparable to the other without saying which it is, so
+   `calls_per_query` is carried alongside them and the report prints it.
 """
 
 from __future__ import annotations
 
 import random
 
+from jevdemo.arms import ARMS
+
 from jevdemo.rag.rank_stats import mean_interval
 
 SCORES = ("recall@1", "recall@3", "recall@5", "recall@10",
           "reachable@5", "reachable@10", "ndcg@5", "ndcg@10", "mrr")
+
+
+#: Arm name -> kind, so `summarise` can tell a one-call arm from a per-passage one
+#: without re-deriving the roster. Missing name falls back to one call, which is
+#: what every non-Jev arm does.
+_KIND = {a.name: a.kind for a in ARMS}
 
 
 def _pct(values: list[float], q: float) -> float | None:
@@ -44,6 +59,11 @@ def summarise(rows: list[dict], seed: int) -> dict[str, dict]:
         rng = random.Random(seed)
         s: dict = {
             "arm": arm,
+            # One HTTP call per candidate for the per-passage encodings, one for
+            # everyone else. Derived from the arm registry and the depth actually
+            # run, so it cannot drift from what the harness did.
+            "calls_per_query": (mine[0]["depth"]
+                                if _KIND.get(arm) == "jev-pair" else 1),
             "attempted": len(mine),
             "scored": len(ok),
             "failures": len(mine) - len(ok),
@@ -66,9 +86,14 @@ def summarise(rows: list[dict], seed: int) -> dict[str, dict]:
         s["input_tokens"] = sum(r["input_tokens"] for r in mine)
         s["output_tokens"] = sum(r["output_tokens"] for r in mine)
         s["reasoning_tokens"] = sum(r["reasoning_tokens"] for r in mine)
+        # Every attempt is billed, so the numerator spans `mine` — but a call that
+        # came back unusable bought nothing, so the denominator is `ok`. Dividing
+        # by attempts instead would make an arm look cheaper exactly in proportion
+        # to how often it failed. With no answers at all the price is undefined,
+        # not zero: None, so nothing downstream can print it as cheap.
         s["cost_micro"] = sum(r["reported_cost_micro"] or 0 for r in mine)
         s["cost_per_1k_micro"] = (
-            round(s["cost_micro"] * 1000 / len(mine)) if mine else 0)
+            round(s["cost_micro"] * 1000 / len(ok)) if ok else None)
         out[arm] = s
     return out
 

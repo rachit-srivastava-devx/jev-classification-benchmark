@@ -232,11 +232,64 @@ on the corpus. The per-chunk encodings never hit it, because each of their calls
 one chunk. If you plan to rerank 100 long chunks in a single call, this is the constraint
 to design around.
 
+**A question does not cost every model the same number of HTTP calls, and the
+table now says so.** Choice asks about all 100 chunks in one request. Score and Noul ask
+about each chunk on its own — 100 requests per question. The "cost per 1,000 questions"
+and "typical speed" columns are per *question*, so for those two encodings they are a
+hundred calls' worth. Per call, Score is 70 ms and about $0.03 per thousand calls; per
+question it is 6,967 ms and $2.82. Both numbers are real and they are not comparable to a
+single-call model without the calls-per-question column beside them.
+
+**Those two encodings were measured while being used inefficiently, and we know by how
+much.** Jev · Score sent 67,245 input tokens per question. Jev · Choice sent 21,061 for
+the identical 100 chunks. The difference is not content: it is roughly 437 tokens of
+request envelope, instructions and rubric, re-sent once per chunk. The vendor's own
+cookbook says to batch — *"batching every question into one call is 12.2x cheaper"* — and
+the harness did not. That is our error, not the model's, and it means the per-question
+price and latency published here for Score and Noul are an upper bound on what this
+encoding costs, not its best case.
+
+The harness in this repository has since been changed to batch: it packs as many chunks
+into one request as fit under the measured input ceiling, and halves and retries any
+request that comes back empty. It is unit-tested but it has **not been re-run**, because
+the API key hit its spending cap. So the batched code is what a reader will execute and
+the unbatched numbers are what this report publishes — if you re-run this, expect Score
+and Noul to come out cheaper and much faster than the table says, and expect nothing else
+to move, because the judgement asked is byte-identical either way. We are flagging this
+rather than quietly re-running one arm and comparing it against seven that were measured
+the old way.
+
 **Every result here is one model asked three ways, not three products.** Section 3 breaks
 that out. Treat "Jev scores X" as meaningless without the encoding attached.
 
 **Cost is what the provider billed us**, read back from each call, not estimated from a
-price list.
+price list. It is divided by the answers we could use, not by the calls we made. Those
+are different numbers whenever a model failed: you are billed for a call that comes back
+unusable, and it buys you nothing. Dividing by calls made would have shown Jev · Choice at
+$0.67 per thousand questions instead of its real $0.88, and gemini-3.8-flash at $13.23
+instead of $16.13 — each looking cheaper in exact proportion to how often it failed. An
+earlier draft of this report did divide by calls made, and those two prices were wrong in
+it.
+
+**The pairwise grid runs many tests at once.** With 8 models there are 28 pairs, each
+given its own 95% range. At 95%, roughly one or two cells in a grid that size will show a
+winner by chance alone with no correction applied, and we applied none. This is a reason to
+read the grid as "almost everything is a tie" rather than to trust any single non-tie cell
+in it.
+
+**Two of the three corpora are not pinned to an immutable revision.** The shopping corpus
+is fetched at commit `3b74dcf`. BRIGHT and FiQA are fetched from HuggingFace's
+auto-generated parquet branch, which that host may regenerate. So a re-run today gets
+byte-identical shopping data and probably-but-not-provably identical data for the other
+two. The question set itself is pinned: its hash is printed under the diagram above, and
+re-hashing `data/rag/tasks.json` tells you whether you are reading the same 350 questions.
+
+**The questions are the first 50 per domain that qualify, not a random draw.** A question
+qualifies if it has at least one correct chunk and at least 100 keyword hits; we then take
+them in the order the dataset file ships them. This cannot favour one model over another,
+because the selection happens before any model is called and the code that does it imports
+no model client. But if a dataset file happens to be ordered by topic or by date, the
+sample inherits that ordering, and a genuine random draw would not.
 
 
 ## 6 · Why you should believe this

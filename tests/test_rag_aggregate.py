@@ -589,3 +589,40 @@ def test_jev_headline_never_quotes_a_score_the_table_withholds():
     text = m.jev_headline(m.summarise(rows, SEED))
     assert "100.0%" not in text          # Choice's score over its one answer
     assert "answered only 1 of 10" in text
+
+
+def test_a_failed_call_is_not_a_free_call():
+    """You pay for a call that comes back unusable; it just buys you nothing.
+
+    Dividing total spend by attempts makes a model with a high failure rate look
+    cheap in proportion to how often it failed. The honest unit is spend per
+    *answer you can actually use*, so the denominator is the calls that scored.
+    """
+    rows = ([row("a", f"q{i}", 1.0, cost=500) for i in range(2)]
+            + [row("a", f"f{i}", 0.0, cost=500, failure="http_error")
+               for i in range(2)])
+    s = summarise(rows, SEED)["a"]
+    assert s["cost_micro"] == 2000, "every attempt was billed, including failures"
+    # 2000 micro over the 2 answers it actually produced -> $1.00 per thousand.
+    assert s["cost_per_1k_micro"] == 1_000_000
+
+
+def test_an_arm_that_answered_nothing_reports_no_price_rather_than_zero():
+    """Spend / 0 answers is not $0.00 — it is undefined, and must not print cheap."""
+    rows = [row("a", f"q{i}", 0.0, cost=500, failure="http_error") for i in range(3)]
+    s = summarise(rows, SEED)["a"]
+    assert s["cost_per_1k_micro"] is None
+
+
+def test_a_per_passage_arm_records_that_it_made_a_hundred_calls():
+    """Its per-question price and latency are a hundred calls' worth, not one's.
+
+    Without this the table silently compares one HTTP call against a hundred in
+    the same 'typical speed' and 'cost' columns.
+    """
+    rows = [row("jev-score", f"q{i}", 1.0) for i in range(3)]
+    assert summarise(rows, SEED)["jev-score"]["calls_per_query"] == 100
+    rows = [row("jev", f"q{i}", 1.0) for i in range(3)]
+    assert summarise(rows, SEED)["jev"]["calls_per_query"] == 1
+    rows = [row("glm-5.3-flash-low", f"q{i}", 1.0) for i in range(3)]
+    assert summarise(rows, SEED)["glm-5.3-flash-low"]["calls_per_query"] == 1

@@ -224,3 +224,32 @@ def test_a_mixed_field_names_how_many_beat_it_and_how_many_did_not():
     out = _lift_tokens({"jev": {}, "sonnet-5": {}, "bm25-baseline": {}}, rows)
     assert out["models_beating_bm25"] == "1"
     assert "Only 1 of the 2" in out["baseline_finding"]
+
+
+# --- source counting ---------------------------------------------------------
+# The report once printed "4 real collections" directly above a list of two,
+# because the only count it had was of topic sets and BRIGHT contributes three
+# of those. Two counts now exist and both are derived, so neither can be typed
+# in by hand and drift.
+
+from scripts.build_rag_report import SOURCE_LABEL  # noqa: E402
+
+
+def collections(sources):
+    return len({SOURCE_LABEL[s].split()[0] for s in sources})
+
+
+def test_bright_subsets_are_one_collection():
+    subsets = ["bright-biology", "bright-economics", "bright-psychology"]
+    assert collections(subsets) == 1
+    assert len(subsets) == 3
+
+
+def test_the_shipped_roster_is_two_collections_over_four_topics():
+    every = sorted(SOURCE_LABEL)
+    assert collections(every) == 2
+    assert len(every) == 4
+
+
+def test_a_single_source_counts_as_one_of_each():
+    assert collections(["fiqa"]) == 1

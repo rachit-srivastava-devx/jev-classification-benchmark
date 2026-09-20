@@ -342,7 +342,7 @@ table.headline tr.unresolved td { color: var(--muted); }
 <h2>1 · What we tested</h2><div class="accent-rule"></div>
 <p>One job: <strong>given a question and 100 text chunks, put the chunks in order, best first.</strong> We then check whether the chunks that actually answer the question ended up in the top 5.</p>
 <p>This is the job a RAG system does every time someone asks it something. It is usually called reranking. The 5 best chunks are what gets passed to the model that writes the final answer, so a chunk that does not make the top 5 might as well not exist.</p>
-<p>We used 4 real collections, not a made-up test set:</p>
+<p>We used 2 real collections, not a made-up test set. Between them they cover 4 topic areas:</p>
 <ul><li><strong>BRIGHT</strong> — real questions people posted on StackExchange, each several hundred words long, over a corpus of real documents. It was built specifically so that keyword matching does not work. It is hard on purpose.</li><li><strong>FiQA</strong> — real finance questions over 218,052 real answer passages. Ordinary difficulty.</li></ul>
 <p>Together: <strong>101 questions, 4.1 correct chunks per question on average, 10,100 chunks ranked per model.</strong></p>
 <p>Nobody wrote these questions or judged these answers for us. The questions are real and the judgments of which chunk is correct come with the datasets.</p>

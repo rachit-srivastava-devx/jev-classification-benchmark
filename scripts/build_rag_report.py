@@ -79,7 +79,12 @@ def tokens(res: dict, summary: dict, tasks: dict, res20: dict | None) -> dict[st
         "n_models": str(len(res["roster"])),
         "n_calls": f"{len([r for r in rows if r['arm'] != 'bm25-baseline']):,}",
         "n_passages_ranked": f"{res['tasks'] * res['depth']:,}",
+        # Two different counts, and conflating them put "4 real collections"
+        # above a list of two. `n_sources` is topic sets (BRIGHT has three);
+        # `n_collections` is the datasets they come from, taken from the
+        # label prefix so adding a source cannot leave the count behind.
         "n_sources": str(len(per_source)),
+        "n_collections": str(len({SOURCE_LABEL[s].split()[0] for s in per_source})),
         "source_list": ", ".join(SOURCE_LABEL[s] for s in per_source),
         "corpus_size": f"{tasks.get('corpus_total', 218052):,}",
         "top_k": str(res["top_k"]),

@@ -32,7 +32,8 @@ This is the job a RAG system does every time someone asks it something. It is us
 called reranking. The 5 best chunks are what gets passed to the model that writes the
 final answer, so a chunk that does not make the top 5 might as well not exist.
 
-We used {{n_sources}} real collections, not a made-up test set:
+We used {{n_collections}} real collections, not a made-up test set. Between them they
+cover {{n_sources}} topic areas:
 
 - **BRIGHT** — real questions people posted on StackExchange, each several hundred words
   long, over a corpus of real documents. It was built specifically so that keyword

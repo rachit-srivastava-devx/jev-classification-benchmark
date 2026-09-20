@@ -318,3 +318,49 @@ def test_the_batched_request_asks_the_same_judgement_as_the_single_one():
 def test_an_unknown_primitive_stops_before_the_money():
     with pytest.raises(ValueError):
         jev_pair.build_batch_request(SCORE, "sentiment", "q", [{"id": "p0", "text": "p"}])
+
+
+# --- The batched planner, exercised against the real committed task set. -------
+# These are structural properties, not a cost measurement. They prove the batched
+# path asks about every passage exactly once and stays inside the token budget on
+# the same 350 questions the report was built from. They say nothing about what
+# the API charges or how long it takes; only a live run establishes that.
+
+def _real_tasks():
+    p = pathlib.Path(__file__).resolve().parents[1] / "data/rag/tasks.json"
+    if not p.exists():
+        pytest.skip("committed task set not present")
+    t = json.loads(p.read_text())
+    return t["tasks"] if isinstance(t, dict) and "tasks" in t else t
+
+
+def _batch_tokens(query: str, cands: list[dict], grp: list[int]) -> int:
+    return (jev_pair._est_tokens(query) + jev_pair._ENVELOPE_TOKENS
+            + sum(jev_pair._est_tokens(cands[i]["text"])
+                  + jev_pair._PER_QUESTION_TOKENS for i in grp))
+
+
+def test_batching_asks_about_every_passage_exactly_once_on_real_data():
+    """A batch plan that silently dropped a candidate would raise the arm's
+    apparent precision by shrinking the set it can get wrong."""
+    tasks = _real_tasks()
+    assert tasks, "task set is empty — this gate would otherwise pass on nothing"
+    for q in tasks:
+        cands = q["candidates"]
+        flat = [i for grp in jev_pair.plan_batches(q["query"], cands) for i in grp]
+        assert flat == list(range(len(cands))), q["query_id"]
+
+
+def test_no_multi_passage_batch_exceeds_the_token_budget_on_real_data():
+    """A batch over the ceiling is refused by the API, which would show up as
+    the model failing rather than as our planner mis-sizing a request."""
+    tasks = _real_tasks()
+    checked = 0
+    for q in tasks:
+        cands = q["candidates"]
+        for grp in jev_pair.plan_batches(q["query"], cands):
+            if len(grp) > 1:
+                tok = _batch_tokens(q["query"], cands, grp)
+                assert tok <= jev_pair.BATCH_TOKEN_BUDGET, f"{q['query_id']}: {tok}"
+                checked += 1
+    assert checked > 0, "no multi-passage batches checked — the gate measured nothing"
